@@ -4,6 +4,7 @@ from app.models import Lead, ActivityLog, ActivityType
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from sqlalchemy import or_, and_
+from sqlalchemy.orm import joinedload
 
 leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 
@@ -14,7 +15,10 @@ async def list_leads():
     user = request.user
     session = SessionLocal()
     try:
-        leads = session.query(Lead).filter(
+        leads = session.query(Lead).options(
+            joinedload(Lead.assigned_user),
+            joinedload(Lead.created_by_user)
+        ).filter(
             Lead.tenant_id == user.tenant_id,
             Lead.deleted_at == None,
             or_(
@@ -98,13 +102,15 @@ async def get_lead(lead_id):
     user = request.user
     session = SessionLocal()
     try:
-        lead_query = session.query(Lead).filter(
+        lead_query = session.query(Lead).options(
+            joinedload(Lead.assigned_user),
+            joinedload(Lead.created_by_user)
+        ).filter(
             Lead.id == lead_id,
             Lead.tenant_id == user.tenant_id,
             Lead.deleted_at == None
         )
 
-        # Only restrict access if not admin
         if not any(role.name == "admin" for role in user.roles):
             lead_query = lead_query.filter(
                 or_(
@@ -262,7 +268,10 @@ async def list_all_leads_admin():
     user = request.user
     session = SessionLocal()
     try:
-        leads = session.query(Lead).filter(
+        leads = session.query(Lead).options(
+            joinedload(Lead.assigned_user),
+            joinedload(Lead.created_by_user)
+        ).filter(
             Lead.tenant_id == user.tenant_id,
             Lead.deleted_at == None
         ).all()
@@ -297,6 +306,7 @@ async def list_all_leads_admin():
         return response
     finally:
         session.close()
+
 
 
 

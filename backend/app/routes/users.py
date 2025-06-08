@@ -5,23 +5,24 @@ from app.utils.auth_utils import requires_auth, hash_password
 
 users_bp = Blueprint("users", __name__, url_prefix="/api/users")
 
+from sqlalchemy.orm import joinedload
+
 @users_bp.route("/", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_users():
     user = request.user
     session = SessionLocal()
     try:
-        users = session.query(User).filter(User.tenant_id == user.tenant_id).all()
-
-        def get_roles(u):
-            return [r.name for r in u.roles]
+        users = session.query(User).options(joinedload(User.roles)).filter(
+            User.tenant_id == user.tenant_id
+        ).all()
 
         response = jsonify([
             {
                 "id": u.id,
                 "email": u.email,
                 "created_at": u.created_at.isoformat() + "Z",
-                "roles": get_roles(u),
+                "roles": [r.name for r in u.roles],
                 "is_active": u.is_active
             }
             for u in users
@@ -30,6 +31,7 @@ async def list_users():
         return response
     finally:
         session.close()
+
 
 @users_bp.route("/", methods=["POST"])
 @requires_auth(roles=["admin"])

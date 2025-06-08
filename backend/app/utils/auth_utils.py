@@ -7,6 +7,7 @@ from app.models import User
 from app.database import SessionLocal
 from itsdangerous import URLSafeTimedSerializer
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import joinedload
 
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
@@ -37,13 +38,16 @@ def requires_auth(roles: list = None):
             token = auth_header.split(" ")[1]
             try:
                 payload = decode_token(token)
-            except JoseError as e:
+            except JoseError:
                 return jsonify({"error": "Invalid token"}), 401
 
             session = SessionLocal()
             try:
-                user = session.get(User, payload["sub"])
-            except SQLAlchemyError as e:
+                user = session.query(User)\
+                    .options(joinedload(User.roles))\
+                    .filter(User.id == payload["sub"], User.is_active == True)\
+                    .first()
+            except SQLAlchemyError:
                 session.rollback()
                 return jsonify({"error": "Database error"}), 500
             finally:

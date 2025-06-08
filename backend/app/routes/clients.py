@@ -4,6 +4,7 @@ from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from datetime import datetime
 from sqlalchemy import or_
+from sqlalchemy.orm import joinedload
 
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
 
@@ -227,13 +228,18 @@ async def assign_client(client_id):
         session.close()
 
 
+from sqlalchemy.orm import joinedload
+
 @clients_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_clients():
     user = request.user
     session = SessionLocal()
     try:
-        clients = session.query(Client).filter(
+        clients = session.query(Client).options(
+            joinedload(Client.assigned_user),
+            joinedload(Client.created_by_user)
+        ).filter(
             Client.tenant_id == user.tenant_id,
             Client.deleted_at == None
         ).all()
@@ -262,13 +268,16 @@ async def list_all_clients():
         session.close()
 
 
+
 @clients_bp.route("/assigned", methods=["GET"])
 @requires_auth()
 async def list_assigned_clients():
     user = request.user
     session = SessionLocal()
     try:
-        clients = session.query(Client).filter(
+        clients = session.query(Client).options(
+            joinedload(Client.assigned_user)
+        ).filter(
             Client.tenant_id == user.tenant_id,
             Client.assigned_to == user.id,
             Client.deleted_at == None
@@ -290,4 +299,5 @@ async def list_assigned_clients():
         ])
     finally:
         session.close()
+
 
