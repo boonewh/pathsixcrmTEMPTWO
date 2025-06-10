@@ -77,6 +77,7 @@ export interface Lead {
   created_at: string;
   assigned_to?: number;
   assigned_to_name?: string;
+  created_by_name?: string;
   lead_status: "open" | "converted" | "closed" | "lost";
   converted_on?: string;
 }
