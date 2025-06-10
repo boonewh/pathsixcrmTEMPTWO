@@ -1,13 +1,13 @@
-import { Outlet, Navigate } from "react-router-dom";
+import { Outlet, Navigate, Link } from "react-router-dom";
 import { useAuth } from "@/authContext";
 import { useState, useEffect, useRef } from "react";
 import SidebarNav from "@/components/SidebarNav";
 import { apiFetch } from "@/lib/api";
-import { Link } from "react-router-dom";
 
 export default function ProtectedLayout() {
   const { isAuthenticated, logout, token } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
+
+  const [collapsed, setCollapsed] = useState<boolean | null>(null);
   const [isMobileOpen, setIsMobileOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [results, setResults] = useState<any[]>([]);
@@ -15,23 +15,25 @@ export default function ProtectedLayout() {
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
+    setCollapsed(false); // hydrate collapse state on load
+  }, []);
+
+  useEffect(() => {
     const delayDebounce = setTimeout(() => {
-      const runSearch = async () => {
-        if (search.trim().length < 2) {
-          setResults([]);
-          setShowResults(false);
-          return;
-        }
+      if (search.trim().length < 2) {
+        setResults([]);
+        setShowResults(false);
+        return;
+      }
 
-        const res = await apiFetch(`/search/?q=${encodeURIComponent(search)}`, {
-          headers: { Authorization: `Bearer ${token}` },
+      apiFetch(`/search/?q=${encodeURIComponent(search)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          setResults(data);
+          setShowResults(true);
         });
-        const data = await res.json();
-        setResults(data);
-        setShowResults(true);
-      };
-
-      runSearch();
     }, 300);
 
     return () => clearTimeout(delayDebounce);
@@ -47,29 +49,37 @@ export default function ProtectedLayout() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  if (!isAuthenticated) {
-    return <Navigate to="/login" replace />;
-  }
-
   useEffect(() => {
-    const handleUnauthorized = () => {
-      logout();
-    };
+    const handleUnauthorized = () => logout();
     window.addEventListener("unauthorized", handleUnauthorized);
     return () => window.removeEventListener("unauthorized", handleUnauthorized);
   }, []);
 
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (collapsed === null) return null;
 
   return (
     <div className="flex min-h-screen bg-muted">
-      <SidebarNav
-        collapsed={collapsed}
-        toggleCollapsed={() => setCollapsed(!collapsed)}
-        isMobileOpen={isMobileOpen}
-        closeMobile={() => setIsMobileOpen(false)}
-      />
+      {/* Sidebar */}
+      <div
+        className={`${
+          collapsed ? "w-20" : "w-64"
+        } fixed top-0 left-0 h-screen overflow-y-auto z-40 bg-white shadow transition-all duration-300 scrollbar-hide`}
+      >
+        <SidebarNav
+          collapsed={collapsed}
+          toggleCollapsed={() => setCollapsed((prev) => !prev)}
+          isMobileOpen={isMobileOpen}
+          closeMobile={() => setIsMobileOpen(false)}
+        />
+      </div>
 
-      <div className="flex-1 flex flex-col">
+      {/* Main content area */}
+      <div
+        className={`${
+          collapsed ? "ml-20" : "ml-64"
+        } flex-1 flex flex-col transition-all duration-300`}
+      >
         <header className="flex justify-between items-center bg-primary text-primary-foreground px-6 py-4 shadow-sm gap-4 flex-wrap relative">
           <button
             className="lg:hidden text-primary-foreground hover:opacity-80"
@@ -78,7 +88,9 @@ export default function ProtectedLayout() {
             ☰
           </button>
 
-          <span className="text-lg font-bold tracking-tight whitespace-nowrap">PathSix CRM</span>
+          <span className="text-lg font-bold tracking-tight whitespace-nowrap">
+            PathSix CRM
+          </span>
 
           <div className="relative w-full max-w-sm flex-1" ref={searchRef}>
             <input
@@ -88,7 +100,6 @@ export default function ProtectedLayout() {
               onChange={(e) => setSearch(e.target.value)}
               className="w-full border border-white/30 bg-primary-foreground text-primary px-3 py-1 rounded-md text-sm placeholder:text-primary/60 focus:outline-none focus:ring-2 focus:ring-accent"
             />
-
             {showResults && results.length > 0 && (
               <div className="absolute left-0 right-0 mt-1 bg-white border rounded shadow-lg z-50 max-h-64 overflow-y-auto text-sm">
                 {Object.entries(
@@ -131,7 +142,6 @@ export default function ProtectedLayout() {
                 ))}
               </div>
             )}
-
           </div>
 
           <button
