@@ -42,7 +42,7 @@ export default function ClientDetailPage() {
         setNewTitle(data.contact_title || "");
         setAccounts(data.accounts || []);
       } catch (err: any) {
-        setLoadError(err.message || "Failed to load client");
+        setLoadError(err.message || "Failed to load account");
       }
     };
 
@@ -233,7 +233,7 @@ export default function ClientDetailPage() {
             onClick={() => setShowAssignModal(true)}
             className="bg-yellow-600 text-white px-4 py-2 rounded hover:bg-yellow-700"
           >
-            Assign Client
+            Assign Account
           </button>
         )}
       </div>
@@ -279,7 +279,7 @@ export default function ClientDetailPage() {
                     setShowAssignModal(false);
                     window.location.reload();
                   } else {
-                    alert("Failed to assign client.");
+                    alert("Failed to assign account.");
                   }
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
