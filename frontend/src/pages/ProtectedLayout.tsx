@@ -15,7 +15,7 @@ export default function ProtectedLayout() {
   const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    setCollapsed(false); // hydrate collapse state on load
+    setCollapsed(false);
   }, []);
 
   useEffect(() => {
@@ -60,11 +60,23 @@ export default function ProtectedLayout() {
 
   return (
     <div className="flex min-h-screen bg-muted">
-      {/* Sidebar */}
+      {/* Sidebar (desktop + mobile) */}
+      {/* Mobile backdrop */}
+      {isMobileOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 z-30 lg:hidden"
+          onClick={() => setIsMobileOpen(false)}
+        />
+      )}
+
       <div
-        className={`${
-          collapsed ? "w-20" : "w-64"
-        } fixed top-0 left-0 h-screen overflow-y-auto z-40 bg-white shadow transition-all duration-300 scrollbar-hide`}
+        className={`
+          fixed top-0 left-0 h-screen overflow-y-auto scrollbar-hide bg-white shadow z-40 transition-all duration-300
+          ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
+          lg:translate-x-0
+          ${collapsed ? "lg:w-20" : "lg:w-64"} 
+          w-64
+        `}
       >
         <SidebarNav
           collapsed={collapsed}
@@ -74,11 +86,11 @@ export default function ProtectedLayout() {
         />
       </div>
 
-      {/* Main content area */}
+      {/* Main content */}
       <div
-        className={`${
-          collapsed ? "ml-20" : "ml-64"
-        } flex-1 flex flex-col transition-all duration-300`}
+        className={`flex-1 flex flex-col transition-all duration-300 ${
+          collapsed ? "lg:ml-20" : "lg:ml-64"
+        }`}
       >
         <header className="flex justify-between items-center bg-primary text-primary-foreground px-6 py-4 shadow-sm gap-4 flex-wrap relative">
           <button
