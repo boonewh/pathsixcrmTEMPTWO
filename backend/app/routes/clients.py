@@ -3,7 +3,7 @@ from app.models import Client, ActivityLog, ActivityType
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from datetime import datetime
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
 
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
@@ -16,8 +16,14 @@ async def list_clients():
     try:
         clients = session.query(Client).filter(
             Client.tenant_id == user.tenant_id,
-            Client.created_by == user.id,
-            Client.deleted_at == None
+            Client.deleted_at == None,
+            or_(
+                Client.assigned_to == user.id,
+                and_(
+                    Client.assigned_to == None,
+                    Client.created_by == user.id
+                )
+            )
         ).all()
 
         response = jsonify([
@@ -25,24 +31,21 @@ async def list_clients():
                 "id": c.id,
                 "name": c.name,
                 "contact_person": c.contact_person,
-                "contact_title": c.contact_title,
                 "email": c.email,
                 "phone": c.phone,
-                "phone_label": c.phone_label,
-                "secondary_phone": c.secondary_phone,
-                "secondary_phone_label": c.secondary_phone_label,
                 "address": c.address,
                 "city": c.city,
                 "state": c.state,
                 "zip": c.zip,
                 "notes": c.notes,
-                "created_at": c.created_at.isoformat() + "Z"
+                "created_at": c.created_at.isoformat()
             } for c in clients
         ])
         response.headers["Cache-Control"] = "no-store"
         return response
     finally:
         session.close()
+
 
 
 @clients_bp.route("/", methods=["POST"])

@@ -36,7 +36,7 @@ export default function AdminClientsPage() {
 
   return (
     <div className="p-6 space-y-10">
-      <h1 className="text-2xl font-bold text-blue-800">Admin: Clients Overview</h1>
+      <h1 className="text-2xl font-bold text-blue-800">Admin: Accounts Overview</h1>
       {error && <p className="text-red-500">{error}</p>}
 
       <div className="overflow-auto border rounded shadow-sm">
