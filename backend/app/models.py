@@ -152,6 +152,7 @@ class Project(Base):
 
     def __repr__(self):
         return f"<Project {self.project_name}>"
+    
 class Interaction(Base):
     __tablename__ = 'interactions'
 

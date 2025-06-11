@@ -5,6 +5,7 @@ import {
   Phone,
   MapPin,
   User,
+  FolderKanban,
 } from "lucide-react";
 import { useAuth, userHasRole } from "@/authContext";
 import { Client, Interaction, Account } from "@/types";
@@ -29,6 +30,7 @@ export default function ClientDetailPage() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [newTitle, setNewTitle] = useState(client?.contact_title || "");
 
+  const [projects, setProjects] = useState<any[]>([]);
 
   useEffect(() => {
     const loadClient = async () => {
@@ -87,6 +89,15 @@ export default function ClientDetailPage() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    apiFetch(`/projects/by-client/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => res.json())
+      .then(setProjects)
+      .catch(() => setProjects([]));
+  }, [id, token]);
 
   if (loadError) return <p className="p-6 text-red-600">{loadError}</p>;
   if (!client) return <p className="p-6">Loading...</p>;
@@ -227,6 +238,54 @@ export default function ClientDetailPage() {
             }
           }}
         />
+
+        {/* Projects Section */}
+        <details className="bg-white rounded shadow-sm border">
+          <summary className="cursor-pointer px-4 py-2 font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-t flex items-center gap-2">
+            <FolderKanban size={16} /> Projects ({projects.length})
+          </summary>
+
+          <div className="p-4 space-y-4">
+            {projects.length === 0 ? (
+              <p className="text-sm text-gray-500">No projects found for this client.</p>
+            ) : (
+              <ul className="space-y-2 text-sm text-gray-800">
+                {projects.map((p) => (
+                  <li key={p.id} className="border-b pb-2">
+                    <div className="font-medium text-blue-700">{p.project_name}</div>
+                    <div className="text-gray-600 italic">{p.project_status}</div>
+
+                    {p.project_description && (
+                      <div className="text-gray-700">{p.project_description}</div>
+                    )}
+
+                    <div className="text-gray-500 text-xs">
+                      Created: {new Date(p.created_at).toLocaleDateString()}
+                    </div>
+
+                    {p.project_start && (
+                      <div className="text-gray-500 text-xs">
+                        Start: {new Date(p.project_start).toLocaleDateString()}
+                      </div>
+                    )}
+
+                    {p.project_end && (
+                      <div className="text-gray-500 text-xs">
+                        End: {new Date(p.project_end).toLocaleDateString()}
+                      </div>
+                    )}
+
+                    {p.project_worth !== undefined && p.project_worth !== null && (
+                      <div className="text-gray-500 text-xs">
+                        Worth: ${p.project_worth.toLocaleString()}
+                      </div>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </details>
 
         {userHasRole(user, "admin") && (
           <button

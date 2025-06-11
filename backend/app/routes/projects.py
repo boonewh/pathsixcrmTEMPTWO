@@ -195,3 +195,133 @@ async def delete_project(project_id):
         return jsonify({"message": "Project deleted"})
     finally:
         session.close()
+
+
+@projects_bp.route("/all", methods=["GET"])
+@requires_auth(roles=["admin"])
+async def list_all_projects():
+    user = request.user
+    session = SessionLocal()
+    try:
+        projects = session.query(Project).options(
+            joinedload(Project.client).joinedload(Client.assigned_user),
+            joinedload(Project.client).joinedload(Client.created_by_user),
+            joinedload(Project.lead).joinedload(Lead.assigned_user),
+            joinedload(Project.lead).joinedload(Lead.created_by_user),
+        ).filter(
+            Project.tenant_id == user.tenant_id
+        ).all()
+
+        results = []
+        for p in projects:
+            assigned_to_email = None
+            if p.client and p.client.assigned_user:
+                assigned_to_email = p.client.assigned_user.email
+            elif p.client and p.client.created_by_user:
+                assigned_to_email = p.client.created_by_user.email
+            elif p.lead and p.lead.assigned_user:
+                assigned_to_email = p.lead.assigned_user.email
+            elif p.lead and p.lead.created_by_user:
+                assigned_to_email = p.lead.created_by_user.email
+
+            results.append({
+                "id": p.id,
+                "project_name": p.project_name,
+                "project_status": p.project_status,
+                "project_description": p.project_description,
+                "project_start": p.project_start.isoformat() if p.project_start else None,
+                "project_end": p.project_end.isoformat() if p.project_end else None,
+                "project_worth": p.project_worth,
+                "client_id": p.client_id,
+                "lead_id": p.lead_id,
+                "client_name": p.client.name if p.client else None,
+                "lead_name": p.lead.name if p.lead else None,
+                "assigned_to_email": assigned_to_email,
+                "created_at": p.created_at.isoformat() if p.created_at else None
+            })
+
+        return jsonify(results)
+    finally:
+        session.close()
+
+
+
+@projects_bp.route("/by-client/<int:client_id>", methods=["GET"])
+@requires_auth()
+async def list_projects_by_client(client_id):
+    user = request.user
+    session = SessionLocal()
+    try:
+        # Only allow access if the client is visible to the user
+        client = session.query(Client).filter(
+            Client.id == client_id,
+            Client.tenant_id == user.tenant_id,
+            Client.deleted_at == None,
+        ).first()
+
+        if not client:
+            return jsonify({"error": "Client not found"}), 404
+
+        # If not admin, restrict based on assignment/ownership
+        if not any(role.name == "admin" for role in user.roles):
+            if client.assigned_to != user.id and client.created_by != user.id:
+                return jsonify({"error": "Forbidden"}), 403
+
+        projects = session.query(Project).filter(
+            Project.client_id == client_id,
+            Project.tenant_id == user.tenant_id
+        ).order_by(Project.created_at.desc()).all()
+
+        return jsonify([
+            {
+                "id": p.id,
+                "project_name": p.project_name,
+                "project_status": p.project_status,
+                "project_description": p.project_description,
+                "project_start": p.project_start.isoformat() if p.project_start else None,
+                "project_end": p.project_end.isoformat() if p.project_end else None,
+                "project_worth": p.project_worth,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            } for p in projects
+        ])
+    finally:
+        session.close()
+
+@projects_bp.route("/by-lead/<int:lead_id>", methods=["GET"])
+@requires_auth()
+async def list_projects_by_lead(lead_id):
+    user = request.user
+    session = SessionLocal()
+    try:
+        lead = session.query(Lead).filter(
+            Lead.id == lead_id,
+            Lead.tenant_id == user.tenant_id,
+            Lead.deleted_at == None,
+        ).first()
+
+        if not lead:
+            return jsonify({"error": "Lead not found"}), 404
+
+        if not any(role.name == "admin" for role in user.roles):
+            if lead.assigned_to != user.id and lead.created_by != user.id:
+                return jsonify({"error": "Forbidden"}), 403
+
+        projects = session.query(Project).filter(
+            Project.lead_id == lead_id,
+            Project.tenant_id == user.tenant_id
+        ).order_by(Project.created_at.desc()).all()
+
+        return jsonify([
+            {
+                "id": p.id,
+                "project_name": p.project_name,
+                "project_status": p.project_status,
+                "project_description": p.project_description,
+                "project_start": p.project_start.isoformat() if p.project_start else None,
+                "project_end": p.project_end.isoformat() if p.project_end else None,
+                "project_worth": p.project_worth,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            } for p in projects
+        ])
+    finally:
+        session.close()

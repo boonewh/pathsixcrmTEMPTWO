@@ -19,7 +19,7 @@ import ChangePasswordPage from "./pages/ChangePasswordPage";
 import AdminLeadsPage from "./pages/AdminLeadsPage";
 import AdminClientsPage from "./pages/AdminClientsPage";
 import AdminInteractionsPage from "./pages/AdminInteractionsPage";
-
+import AdminProjectsPage from "./pages/AdminProjectsPage";
 function App() {
   return (
     <Routes>
@@ -48,6 +48,7 @@ function App() {
         <Route path="/admin/leads" element={<AdminLeadsPage />} />
         <Route path="/admin/clients" element={<AdminClientsPage />} />
         <Route path="/admin/interactions" element={<AdminInteractionsPage />} />
+        <Route path="/admin/projects" element={<AdminProjectsPage />} />
       </Route>
       {/* Catch all */}
       <Route path="*" element={<NotFound />} />

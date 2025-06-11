@@ -5,6 +5,7 @@ import {
   Phone,
   MapPin,
   User,
+  FolderKanban,
 } from "lucide-react";
 import { useAuth, userHasRole } from "@/authContext";
 import { Lead, Interaction } from "@/types";
@@ -32,6 +33,9 @@ export default function LeadDetailPage() {
 
   const [editingTitle, setEditingTitle] = useState(false);
   const [newTitle, setNewTitle] = useState(lead?.contact_title || "");
+
+  const [projects, setProjects] = useState<any[]>([]);
+  const [projectLoadError, setProjectLoadError] = useState("");
 
 
   useEffect(() => {
@@ -86,7 +90,22 @@ export default function LeadDetailPage() {
     }
   }, [id, token, user]);
 
+  useEffect(() => {
+    if (!id) return;
 
+    apiFetch(`/projects/by-lead/${id}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load projects");
+        return res.json();
+      })
+      .then(setProjects)
+      .catch((err) => {
+        console.error("Project load error:", err);
+        setProjectLoadError("Failed to load associated projects.");
+      });
+  }, [id, token]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -171,7 +190,7 @@ export default function LeadDetailPage() {
 
       window.location.href = `/clients/${newClient.id}`;
     } else {
-      alert("Failed to convert lead to client");
+      alert("Failed to convert lead to account.");
     }
   };
 
@@ -308,6 +327,58 @@ export default function LeadDetailPage() {
         setShowMenu={setShowNoteMenu}
         setNoteDraft={setNoteDraft}
       />
+
+      <details className="bg-white rounded shadow-sm border">
+        <summary className="cursor-pointer px-4 py-2 font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-t flex items-center gap-2">
+          <FolderKanban size={16} /> Projects ({projects.length})
+        </summary>
+
+        <div className="p-4 space-y-4">
+          {projectLoadError && (
+            <p className="text-sm text-red-600">{projectLoadError}</p>
+          )}
+
+          {projects.length === 0 && !projectLoadError ? (
+            <p className="text-sm text-gray-500">No projects found for this lead.</p>
+          ) : (
+            <ul className="space-y-2 text-sm text-gray-800">
+              {projects.map((p) => (
+                <li key={p.id} className="border-b pb-2">
+                  <div className="font-medium text-blue-700">{p.project_name}</div>
+                  <div className="text-gray-600 italic">{p.project_status}</div>
+
+                  {p.project_description && (
+                    <div className="text-gray-700">{p.project_description}</div>
+                  )}
+
+                  <div className="text-gray-500 text-xs">
+                    Created: {new Date(p.created_at).toLocaleDateString()}
+                  </div>
+
+                  {p.project_start && (
+                    <div className="text-gray-500 text-xs">
+                      Start: {new Date(p.project_start).toLocaleDateString()}
+                    </div>
+                  )}
+
+                  {p.project_end && (
+                    <div className="text-gray-500 text-xs">
+                      End: {new Date(p.project_end).toLocaleDateString()}
+                    </div>
+                  )}
+
+                  {p.project_worth !== undefined && p.project_worth !== null && (
+                    <div className="text-gray-500 text-xs">
+                      Worth: ${p.project_worth.toLocaleString()}
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </details>
+
 
       <button
         onClick={handleConvertToClient}
