@@ -29,42 +29,54 @@ export default function Login() {
   }, [attempts, navigate]);
 
   const tryLogin = async () => {
-    try {
-      const res = await apiFetch("/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
-      });
+  try {
+    const res = await apiFetch("/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
 
-      const data = await res.json();
+    const data = await res.json();
 
-      if (res.ok && data?.token) {
-        login(data.token);
-        setLoading(false);
-        setRetrying(false);
-        navigate("/dashboard");
-      } else {
-        throw new Error(data?.error || "Server rejected login");
-      }
-    } catch (err) {
-      logFrontendError("Login retry failure", {
-        email,
-        error: err instanceof Error ? err.message : String(err),
-        attempt: attempts,
-      });
-
-      if (attempts < 6) {
-        setTimeout(() => {
-          setAttempts((prev) => prev + 1);
-          tryLogin();
-        }, 1000);
-      } else {
-        setErrorMessage("Unable to reach server. Please try again shortly.");
-        setLoading(false);
-        setRetrying(false);
-      }
+    if (res.ok && data?.token) {
+      login(data.token);
+      setLoading(false);
+      setRetrying(false);
+      navigate("/dashboard");
+      return;
     }
-  };
+
+    // 👇 Handle bad credentials specifically — stop retrying
+    if (res.status === 401) {
+      setErrorMessage("Your email or password is incorrect.");
+      setLoading(false);
+      setRetrying(false);
+      return;
+    }
+
+    // 👇 Other server error — will fall into retry
+    throw new Error(data?.error || "Unexpected server error");
+
+  } catch (err) {
+    logFrontendError("Login retry failure", {
+      email,
+      error: err instanceof Error ? err.message : String(err),
+      attempt: attempts,
+    });
+
+    if (attempts < 6) {
+      setTimeout(() => {
+        setAttempts((prev) => prev + 1);
+        tryLogin();
+      }, 1000);
+    } else {
+      setErrorMessage("Unable to reach server. Please try again shortly.");
+      setLoading(false);
+      setRetrying(false);
+    }
+  }
+};
+
 
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();

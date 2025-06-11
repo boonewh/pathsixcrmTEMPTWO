@@ -1,9 +1,10 @@
 from quart import Blueprint, request, jsonify
 from datetime import datetime
-from app.models import Project, ActivityLog, ActivityType
+from app.models import Project, ActivityLog, ActivityType, Client, Lead
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from sqlalchemy.orm import joinedload
+from sqlalchemy import or_
 
 projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
 
@@ -16,7 +17,14 @@ async def list_projects():
         projects = session.query(Project).options(
             joinedload(Project.client),
             joinedload(Project.lead)
-        ).filter(Project.tenant_id == user.tenant_id).all()
+        ).filter(
+            Project.tenant_id == user.tenant_id,
+            or_(
+                Project.created_by == user.id,
+                Project.client.has(Client.assigned_to == user.id),
+                Project.lead.has(Lead.assigned_to == user.id)
+            )
+        ).all()
 
         return jsonify([
             {
@@ -31,11 +39,12 @@ async def list_projects():
                 "lead_id": p.lead_id,
                 "client_name": p.client.name if p.client else None,
                 "lead_name": p.lead.name if p.lead else None,
-                "created_at": p.created_at.isoformat() + "Z" if p.created_at else None
+                "created_at": p.created_at.isoformat() if p.created_at else None
             } for p in projects
         ])
     finally:
         session.close()
+
 
 @projects_bp.route("/<int:project_id>", methods=["GET"])
 @requires_auth()

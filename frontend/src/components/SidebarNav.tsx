@@ -58,10 +58,10 @@ function SidebarContent({
       section: "Projects",
       items: [{ label: "Projects", path: "/projects", icon: FolderKanban }],
     },
-    {
-      section: "Reports",
-      items: [{ label: "Reports", path: "/reports", icon: FileText }],
-    },
+//    {
+//      section: "Reports",
+//      items: [{ label: "Reports", path: "/reports", icon: FileText }],
+//    },
     {
       section: "Settings",
       items: [

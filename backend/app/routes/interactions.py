@@ -30,7 +30,12 @@ async def list_interactions():
 
         query = query.filter(
             or_(
-                Interaction.client.has(Client.created_by == user.id),
+                Interaction.client.has(
+                    or_(
+                        Client.created_by == user.id,
+                        Client.assigned_to == user.id
+                    )
+                ),
                 Interaction.lead.has(
                     or_(
                         Lead.created_by == user.id,
@@ -39,6 +44,7 @@ async def list_interactions():
                 )
             )
         )
+
 
         if client_id:
             query = query.filter(
