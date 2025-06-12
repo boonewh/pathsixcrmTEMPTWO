@@ -18,9 +18,14 @@ export async function apiFetch(path: string, options?: RequestInit) {
   }
 
   if (!res.ok && res.status !== 401) {
-    const text = await res.text();
-    toast.error(`Error: ${res.status} ${text}`);
-    console.error(`API error on ${path}:`, res.status, text);
+    try {
+      const errorData = await res.json();
+      const errorMessage = errorData.error || `Error: ${res.status}`;
+      toast.error(errorMessage);
+    } catch {
+      const text = await res.text();
+      toast.error(`Error: ${res.status} ${text}`);
+    }
   }
 
   return res;

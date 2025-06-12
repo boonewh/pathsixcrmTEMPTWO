@@ -32,7 +32,7 @@ const EntityCard: FC<EntityCardProps> = ({
   }
 
   return (
-    <li className="transition-shadow hover:shadow-md border border-gray-200 rounded-lg bg-white p-5 hover:border-blue-400">
+    <div className="w-full transition-shadow hover:shadow-md border border-gray-200 rounded-lg bg-white p-5 hover:border-blue-400">
       <div className="flex justify-between gap-4">
         <div className="flex-1">
           {editing ? editForm : (
@@ -61,46 +61,49 @@ const EntityCard: FC<EntityCardProps> = ({
           )}
         </div>
 
-        <Menu as="div" className="relative inline-block text-left">
-          <Menu.Button className="p-2 text-gray-500 hover:text-black">
-            <MoreVertical className="h-5 w-5" />
-          </Menu.Button>
-          <Menu.Items className="absolute right-0 mt-2 w-32 origin-top-right bg-white border border-gray-200 rounded-md shadow-lg z-10 focus:outline-none">
-            <div className="py-1">
-              {onEdit && (
-                <Menu.Item>
-                  {({ active }) => (
-                    <button
-                      onClick={onEdit}
-                      className={`w-full text-left px-4 py-2 text-sm ${active ? "bg-gray-100" : ""}`}
-                    >
-                      Edit
-                    </button>
-                  )}
-                </Menu.Item>
-              )}
-              {onDelete && (
-                <Menu.Item>
-                  {({ active }) => (
-                    <button
-                      onClick={confirmDelete}
-                      className={`w-full text-left px-4 py-2 text-sm text-red-600 ${active ? "bg-gray-100" : ""}`}
-                    >
-                      Delete
-                    </button>
-                  )}
-                </Menu.Item>
-              )}
-              {extraMenuItems && (
-                <div className="border-t border-gray-100 mt-1 pt-1">
-                  {extraMenuItems}
-                </div>
-              )}
-            </div>
-          </Menu.Items>
-        </Menu>
+        {(onEdit || onDelete || extraMenuItems) && (
+          <Menu as="div" className="relative inline-block text-left">
+            <Menu.Button className="p-2 text-gray-500 hover:text-black">
+              <MoreVertical className="h-5 w-5" />
+            </Menu.Button>
+            <Menu.Items className="absolute right-0 mt-2 w-32 origin-top-right bg-white border border-gray-200 rounded-md shadow-lg z-10 focus:outline-none">
+              <div className="py-1">
+                {onEdit && (
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        onClick={onEdit}
+                        className={`w-full text-left px-4 py-2 text-sm ${active ? "bg-gray-100" : ""}`}
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </Menu.Item>
+                )}
+                {onDelete && (
+                  <Menu.Item>
+                    {({ active }) => (
+                      <button
+                        onClick={confirmDelete}
+                        className={`w-full text-left px-4 py-2 text-sm text-red-600 ${active ? "bg-gray-100" : ""}`}
+                      >
+                        Delete
+                      </button>
+                    )}
+                  </Menu.Item>
+                )}
+                {extraMenuItems && (
+                  <div className="border-t border-gray-100 mt-1 pt-1">
+                    {extraMenuItems}
+                  </div>
+                )}
+              </div>
+            </Menu.Items>
+          </Menu>
+        )}
+
       </div>
-    </li>
+    </div>
   );
 };
 

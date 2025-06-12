@@ -98,6 +98,11 @@ async def create_project():
     user = request.user
     data = await request.get_json()
     session = SessionLocal()
+
+    # ✅ Ensure the project is tied to a client or a lead
+    if not data.get("client_id") and not data.get("lead_id"):
+        return jsonify({"error": "Project MUST be attached to an Account or Lead using menus at bottom."}), 400
+
     try:
         project = Project(
             tenant_id=user.tenant_id,
@@ -115,10 +120,12 @@ async def create_project():
         session.add(project)
         session.commit()
         session.refresh(project)
+
         if project.client:
             session.refresh(project.client)
         if project.lead:
             session.refresh(project.lead)
+
         return jsonify({
             "id": project.id,
             "project_name": project.project_name,

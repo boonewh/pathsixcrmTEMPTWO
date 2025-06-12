@@ -175,6 +175,11 @@ export default function Customers() {
                     </div>
                   </li>
                 )}
+                {client.email && (
+                  <li className="flex items-center gap-2">
+                    <Mail size={14} /> {client.email}
+                  </li>
+                )}
                 {client.phone && (
                   <li className="flex items-center gap-2">
                     <Phone size={14} />

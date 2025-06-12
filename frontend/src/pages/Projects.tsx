@@ -72,9 +72,8 @@ export default function Projects() {
       const data = await updated.json();
       setProjects(data);
       resetForm();
-    } else {
-      alert("Failed to save project");
     }
+    // No need for else block - apiFetch already handles errors and shows toast messages
   };
 
   const handleDelete = async (id: number) => {
@@ -107,68 +106,69 @@ export default function Projects() {
         + New Project
       </button>
 
-      <ul className="space-y-4">
+      <div className="space-y-4">
         {creating && (
-          <EntityCard
-            title="New Project"
-            editing
-            onSave={handleSave}
-            onCancel={resetForm}
-            editForm={
-              <FormWrapper>
-                <ProjectForm
-                  form={form}
-                  setForm={setForm}
-                  clients={clients}
-                  leads={leads}
-                />
-              </FormWrapper>
-            }
-          />
+          <div className="w-full">
+            <EntityCard
+              title="New Project"
+              editing
+              onSave={handleSave}
+              onCancel={resetForm}
+              editForm={
+                  <ProjectForm
+                    form={form}
+                    setForm={setForm}
+                    clients={clients}
+                    leads={leads}
+                  />
+              }
+            />
+          </div>
         )}
 
         {projects.map((project) => (
-          <EntityCard
-            key={project.id}
-            title={project.project_name}
-            editing={editingId === project.id}
-            onEdit={() => {
-              setEditingId(project.id);
-              setForm(project);
-            }}
-            onCancel={resetForm}
-            onSave={handleSave}
-            onDelete={() => handleDelete(project.id)}
-            editForm={
-              <FormWrapper>
-                <ProjectForm
-                  form={form}
-                  setForm={setForm}
-                  clients={clients}
-                  leads={leads}
-                />
-              </FormWrapper>
-            }
-            details={
-              <ul className="text-sm text-gray-700 space-y-1">
-                {project.project_description && <li>{project.project_description}</li>}
-                {project.project_status && <li>Status: {project.project_status}</li>}
-                {project.project_start && (
-                  <li>Start: {new Date(project.project_start).toLocaleString()}</li>
-                )}
-                {project.project_end && (
-                  <li>End: {new Date(project.project_end).toLocaleString()}</li>
-                )}
-                {project.project_worth && <li>Worth: ${project.project_worth}</li>}
-                {project.client_name && (
-                  <li>{USE_ACCOUNT_LABELS ? "Account" : "Client"}: {project.client_name}</li>
-                )}
-                {project.lead_name && <li>Lead: {project.lead_name}</li>}
-              </ul>
-            }
-          />
+          <div key={project.id} className="w-full">
+            <EntityCard
+              title={project.project_name}
+              editing={editingId === project.id}
+              onEdit={() => {
+                setEditingId(project.id);
+                setForm(project);
+              }}
+              onCancel={resetForm}
+              onSave={handleSave}
+              onDelete={() => handleDelete(project.id)}
+              editForm={
+                <FormWrapper>
+                  <ProjectForm
+                    form={form}
+                    setForm={setForm}
+                    clients={clients}
+                    leads={leads}
+                  />
+                </FormWrapper>
+              }
+              details={
+                <ul className="text-sm text-gray-700 space-y-1">
+                  {project.project_description && <li>{project.project_description}</li>}
+                  {project.project_status && <li>Status: {project.project_status}</li>}
+                  {project.project_start && (
+                    <li>Start: {new Date(project.project_start).toLocaleString()}</li>
+                  )}
+                  {project.project_end && (
+                    <li>End: {new Date(project.project_end).toLocaleString()}</li>
+                  )}
+                  {project.project_worth && <li>Worth: ${project.project_worth}</li>}
+                  {project.client_name && (
+                    <li>{USE_ACCOUNT_LABELS ? "Account" : "Client"}: {project.client_name}</li>
+                  )}
+                  {project.lead_name && <li>Lead: {project.lead_name}</li>}
+                </ul>
+              }
+            />
+          </div>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

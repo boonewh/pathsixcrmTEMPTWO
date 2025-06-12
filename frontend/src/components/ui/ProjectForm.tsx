@@ -25,11 +25,12 @@ export default function ProjectForm({
   leads,
 }: ProjectFormProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       <div className="grid gap-2">
         <Label htmlFor="project_name">Project Name</Label>
         <Input
           id="project_name"
+          className="w-full"
           value={form.project_name || ""}
           onChange={(e) => setForm({ ...form, project_name: e.target.value })}
         />
@@ -39,6 +40,7 @@ export default function ProjectForm({
         <Label htmlFor="project_description">Description</Label>
         <Textarea
           id="project_description"
+          className="w-full"
           value={form.project_description || ""}
           onChange={(e) =>
             setForm({ ...form, project_description: e.target.value })
@@ -51,24 +53,22 @@ export default function ProjectForm({
         <select
           id="project_status"
           value={form.project_status ?? "pending"}
-          onChange={(e) =>
-            setForm({ ...form, project_status: e.target.value })
-          }
-          className="border rounded px-2 py-1 text-sm"
+          onChange={(e) => setForm({ ...form, project_status: e.target.value })}
+          className="w-full border rounded px-2 py-1 text-sm"
         >
-          {/* Default to “pending” if unset */}
           <option value="pending">Pending</option>
           <option value="won">Won</option>
           <option value="lost">Lost</option>
         </select>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
           <Label htmlFor="project_start">Start Date</Label>
           <Input
             id="project_start"
             type="datetime-local"
+            className="w-full appearance-none pr-3"
             value={form.project_start || ""}
             onChange={(e) =>
               setForm({ ...form, project_start: e.target.value })
@@ -80,6 +80,7 @@ export default function ProjectForm({
           <Input
             id="project_end"
             type="datetime-local"
+            className="w-full appearance-none pr-3"
             value={form.project_end || ""}
             onChange={(e) =>
               setForm({ ...form, project_end: e.target.value })
@@ -93,6 +94,7 @@ export default function ProjectForm({
         <Input
           id="project_worth"
           type="number"
+          className="w-full"
           value={form.project_worth || ""}
           onChange={(e) =>
             setForm({
@@ -103,13 +105,14 @@ export default function ProjectForm({
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="grid gap-2">
           <Label htmlFor="client_id">
             {USE_ACCOUNT_LABELS ? "Account" : "Client"}
           </Label>
           <select
             id="client_id"
+            className="w-full min-w-0 border rounded px-2 py-1 text-sm"
             value={form.client_id || ""}
             onChange={(e) =>
               setForm({
@@ -117,7 +120,6 @@ export default function ProjectForm({
                 client_id: parseInt(e.target.value) || undefined,
               })
             }
-            className="border rounded px-2 py-1 text-sm"
           >
             <option value="">
               -- Select {USE_ACCOUNT_LABELS ? "Account" : "Client"} --
@@ -134,6 +136,7 @@ export default function ProjectForm({
           <Label htmlFor="lead_id">Lead</Label>
           <select
             id="lead_id"
+            className="w-full min-w-0 border rounded px-2 py-1 text-sm"
             value={form.lead_id || ""}
             onChange={(e) =>
               setForm({
@@ -141,7 +144,6 @@ export default function ProjectForm({
                 lead_id: parseInt(e.target.value) || undefined,
               })
             }
-            className="border rounded px-2 py-1 text-sm"
           >
             <option value="">-- Select Lead --</option>
             {leads.map((l) => (
