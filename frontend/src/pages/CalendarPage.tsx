@@ -66,6 +66,7 @@ export default function CalendarPage() {
           secondary_phone: i.secondary_phone,
           secondary_phone_label: i.secondary_phone_label,
           profile_link: i.profile_link,
+          followup_status: i.followup_status,
         },
       }));
 
@@ -136,9 +137,11 @@ export default function CalendarPage() {
 
   function renderEventContent(arg: any) {
     const isOverdue = new Date(arg.event.start) < new Date();
-    const style = isOverdue
-      ? "text-red-600 font-semibold"
-      : "text-blue-600 font-semibold";
+    const isCompleted = arg.event.extendedProps.followup_status === "completed";
+
+    let style = "text-blue-600 font-semibold";
+    if (isCompleted) style = "text-green-600 font-semibold";
+    else if (isOverdue) style = "text-red-600 font-semibold";
 
     return (
       <div className={`${style} truncate max-w-full overflow-hidden whitespace-nowrap`}>
@@ -146,6 +149,7 @@ export default function CalendarPage() {
       </div>
     );
   }
+
 
   function handleDateClick(arg: any) {
     const calendarApi = calendarRef.current?.getApi() as Calendar;
