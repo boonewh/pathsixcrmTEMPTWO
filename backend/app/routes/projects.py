@@ -19,11 +19,7 @@ async def list_projects():
             joinedload(Project.lead)
         ).filter(
             Project.tenant_id == user.tenant_id,
-            or_(
-                Project.created_by == user.id,
-                Project.client.has(Client.assigned_to == user.id),
-                Project.lead.has(Lead.assigned_to == user.id)
-            )
+            Project.created_by == user.id
         ).all()
 
         return jsonify([
@@ -44,6 +40,7 @@ async def list_projects():
         ])
     finally:
         session.close()
+
 
 
 @projects_bp.route("/<int:project_id>", methods=["GET"])
@@ -98,10 +95,6 @@ async def create_project():
     user = request.user
     data = await request.get_json()
     session = SessionLocal()
-
-    # ✅ Ensure the project is tied to a client or a lead
-    if not data.get("client_id") and not data.get("lead_id"):
-        return jsonify({"error": "Project MUST be attached to an Account or Lead using menus at bottom."}), 400
 
     try:
         project = Project(

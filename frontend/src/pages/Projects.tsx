@@ -5,6 +5,7 @@ import { Project } from "@/types";
 import ProjectForm from "@/components/ui/ProjectForm";
 import { FormWrapper } from "@/components/ui/FormWrapper";
 import { apiFetch } from "@/lib/api";
+import { Link } from "react-router-dom";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
@@ -150,20 +151,34 @@ export default function Projects() {
               }
               details={
                 <ul className="text-sm text-gray-700 space-y-1">
+                  <li>Status: {project.project_status}</li>
                   {project.project_description && <li>{project.project_description}</li>}
-                  {project.project_status && <li>Status: {project.project_status}</li>}
-                  {project.project_start && (
-                    <li>Start: {new Date(project.project_start).toLocaleString()}</li>
+
+                  {project.client_id && project.client_name && (
+                    <li>
+                      <Link to={`/clients/${project.client_id}`} className="text-blue-600 hover:underline">
+                        {USE_ACCOUNT_LABELS ? "Account" : "Client"}: {project.client_name}
+                      </Link>
+                    </li>
                   )}
-                  {project.project_end && (
-                    <li>End: {new Date(project.project_end).toLocaleString()}</li>
+
+                  {project.lead_id && project.lead_name && (
+                    <li>
+                      <Link to={`/leads/${project.lead_id}`} className="text-blue-600 hover:underline">
+                        Lead: {project.lead_name}
+                      </Link>
+                    </li>
                   )}
-                  {project.project_worth && <li>Worth: ${project.project_worth}</li>}
-                  {project.client_name && (
-                    <li>{USE_ACCOUNT_LABELS ? "Account" : "Client"}: {project.client_name}</li>
+
+                  {!project.client_id && !project.lead_id && (
+                    <li className="text-yellow-600 text-xs font-medium">⚠️ Unassigned Project</li>
                   )}
-                  {project.lead_name && <li>Lead: {project.lead_name}</li>}
+
+                  {project.project_worth && <li>Worth: ${project.project_worth.toLocaleString()}</li>}
+                  {project.project_start && <li>Start: {new Date(project.project_start).toLocaleDateString()}</li>}
+                  {project.project_end && <li>End: {new Date(project.project_end).toLocaleDateString()}</li>}
                 </ul>
+
               }
             />
           </div>
