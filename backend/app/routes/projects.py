@@ -8,6 +8,17 @@ from sqlalchemy import or_
 
 projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
 
+def parse_date_with_default_time(value):
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        try:
+            return datetime.fromisoformat(value + "T00:00:00")
+        except ValueError:
+            return None
+
 @projects_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_projects():
@@ -104,8 +115,8 @@ async def create_project():
             project_name=data["project_name"],
             project_status=data.get("project_status", "pending"),
             project_description=data.get("project_description"),
-            project_start=datetime.fromisoformat(data["project_start"]) if data.get("project_start") else None,
-            project_end=datetime.fromisoformat(data["project_end"]) if data.get("project_end") else None,
+            project_start=parse_date_with_default_time(data.get("project_start")),
+            project_end=parse_date_with_default_time(data.get("project_end")),
             project_worth=data.get("project_worth"),
             created_by=user.id,
             created_at=datetime.utcnow()
@@ -157,7 +168,7 @@ async def update_project(project_id):
             if field in data:
                 value = data[field]
                 if field in ["project_start", "project_end"] and value:
-                    value = datetime.fromisoformat(value)
+                    value = parse_date_with_default_time(value)
                 setattr(project, field, value)
 
         session.commit()

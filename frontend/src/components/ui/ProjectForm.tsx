@@ -18,12 +18,26 @@ interface ProjectFormProps {
   leads: SelectableEntity[];
 }
 
+function splitDateTime(datetime?: string): { date: string; time: string } {
+  if (!datetime) return { date: "", time: "" };
+  const [date, time = ""] = datetime.split("T");
+  return { date, time: time.slice(0, 5) }; // truncate to HH:MM
+}
+
+function combineDateTime(date: string, time: string): string | undefined {
+  if (!date) return undefined;
+  return `${date}T${time || "00:00"}`;
+}
+
 export default function ProjectForm({
   form,
   setForm,
   clients,
   leads,
 }: ProjectFormProps) {
+  const { date: startDate, time: startTime } = splitDateTime(form.project_start);
+  const { date: endDate, time: endTime } = splitDateTime(form.project_end);
+
   return (
     <div className="space-y-6">
       <div className="grid gap-2">
@@ -64,26 +78,57 @@ export default function ProjectForm({
 
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="grid gap-2">
-          <Label htmlFor="project_start">Start Date</Label>
+          <Label htmlFor="project_start_date">Start Date</Label>
           <Input
-            id="project_start"
-            type="datetime-local"
-            className="w-full appearance-none pr-3"
-            value={form.project_start || ""}
+            id="project_start_date"
+            type="date"
+            className="w-full"
+            value={startDate}
             onChange={(e) =>
-              setForm({ ...form, project_start: e.target.value })
+              setForm({
+                ...form,
+                project_start: combineDateTime(e.target.value, startTime),
+              })
+            }
+          />
+          <Input
+            id="project_start_time"
+            type="time"
+            className="w-full"
+            value={startTime}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                project_start: combineDateTime(startDate, e.target.value),
+              })
             }
           />
         </div>
+
         <div className="grid gap-2">
-          <Label htmlFor="project_end">End Date</Label>
+          <Label htmlFor="project_end_date">End Date</Label>
           <Input
-            id="project_end"
-            type="datetime-local"
-            className="w-full appearance-none pr-3"
-            value={form.project_end || ""}
+            id="project_end_date"
+            type="date"
+            className="w-full"
+            value={endDate}
             onChange={(e) =>
-              setForm({ ...form, project_end: e.target.value })
+              setForm({
+                ...form,
+                project_end: combineDateTime(e.target.value, endTime),
+              })
+            }
+          />
+          <Input
+            id="project_end_time"
+            type="time"
+            className="w-full"
+            value={endTime}
+            onChange={(e) =>
+              setForm({
+                ...form,
+                project_end: combineDateTime(endDate, e.target.value),
+              })
             }
           />
         </div>
