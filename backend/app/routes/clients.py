@@ -1,10 +1,11 @@
 from quart import Blueprint, request, jsonify
-from app.models import Client, ActivityLog, ActivityType
+from app.models import Client, ActivityLog, ActivityType, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from datetime import datetime
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
+from app.utils.email_utils import send_assignment_notification
 
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
 
@@ -225,10 +226,20 @@ async def assign_client(client_id):
         client.updated_by = user.id
         client.updated_at = datetime.utcnow()
 
+        assigned_user = session.query(User).get(assigned_to)
+        if assigned_user:
+            await send_assignment_notification(
+                to_email=assigned_user.email,
+                entity_type="client",
+                entity_name=client.name,
+                assigned_by=user.email
+            )
+
         session.commit()
         return jsonify({"message": "Client assigned successfully"})
     finally:
         session.close()
+
 
 
 from sqlalchemy.orm import joinedload

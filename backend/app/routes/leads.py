@@ -1,10 +1,11 @@
 from quart import Blueprint, request, jsonify
 from datetime import datetime
-from app.models import Lead, ActivityLog, ActivityType
+from app.models import Lead, ActivityLog, ActivityType, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
+from app.utils.email_utils import send_assignment_notification
 
 leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 
@@ -255,6 +256,16 @@ async def assign_lead(lead_id):
         lead.assigned_to = assigned_to
         lead.updated_by = user.id
         lead.updated_at = datetime.utcnow()
+
+        # ✅ Send email to assigned user
+        assigned_user = session.query(User).get(assigned_to)
+        if assigned_user:
+            await send_assignment_notification(
+                to_email=assigned_user.email,
+                entity_type="lead",
+                entity_name=lead.name,
+                assigned_by=user.email
+            )
 
         session.commit()
         return jsonify({"message": "Lead assigned successfully"})

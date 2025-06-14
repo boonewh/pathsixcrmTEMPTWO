@@ -37,6 +37,7 @@ export default function LeadDetailPage() {
   const [projects, setProjects] = useState<any[]>([]);
   const [projectLoadError, setProjectLoadError] = useState("");
 
+  const [isAssigning, setIsAssigning] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -422,9 +423,10 @@ export default function LeadDetailPage() {
                 Cancel
               </button>
               <button
-                disabled={!selectedUserId}
+                disabled={!selectedUserId || isAssigning}
                 onClick={async () => {
-                  const res = await apiFetch(`/leads/${id}/assign`, {
+                  setIsAssigning(true);
+                  const res = await apiFetch(`/clients/${id}/assign`, {
                     method: "PUT",
                     headers: {
                       "Content-Type": "application/json",
@@ -439,10 +441,11 @@ export default function LeadDetailPage() {
                   } else {
                     alert("Failed to assign lead.");
                   }
+                  setIsAssigning(false);
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
-                Assign
+                {isAssigning ? "Assigning…" : "Assign"}
               </button>
             </div>
           </div>

@@ -27,3 +27,11 @@ async def send_email(subject: str, recipient: str, body: str):
         start_tls=MAIL_USE_TLS,
     )
 
+async def send_assignment_notification(to_email: str, entity_type: str, entity_name: str, assigned_by: str):
+    subject = f"New {entity_type.capitalize()} Assigned to You"
+    body = (
+        f"You've been assigned to the {entity_type} '{entity_name}' by {assigned_by}.\n"
+        f"Please log in to the CRM to view the details.\n\n"
+        f"— {MAIL_FROM_NAME}"
+    )
+    await send_email(subject, to_email, body)

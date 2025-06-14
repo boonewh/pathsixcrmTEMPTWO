@@ -32,6 +32,8 @@ export default function ClientDetailPage() {
 
   const [projects, setProjects] = useState<any[]>([]);
 
+  const [isAssigning, setIsAssigning] = useState(false);
+
   useEffect(() => {
     const loadClient = async () => {
       try {
@@ -323,8 +325,9 @@ export default function ClientDetailPage() {
                 Cancel
               </button>
               <button
-                disabled={!selectedUserId}
+                disabled={!selectedUserId || isAssigning}
                 onClick={async () => {
+                  setIsAssigning(true);
                   const res = await apiFetch(`/clients/${id}/assign`, {
                     method: "PUT",
                     headers: {
@@ -340,10 +343,11 @@ export default function ClientDetailPage() {
                   } else {
                     alert("Failed to assign account.");
                   }
+                  setIsAssigning(false);
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
               >
-                Assign
+                {isAssigning ? "Assigning…" : "Assign"}
               </button>
             </div>
           </div>
