@@ -193,11 +193,13 @@ export default function SidebarNav({
               <X className="h-5 w-5" />
             </button>
 
-            <SidebarContent
-              collapsed={false}
-              toggleCollapsed={toggleCollapsed}
-              closeMobile={closeMobile}
-            />
+            <div className="pb-20">
+              <SidebarContent
+                collapsed={false}
+                toggleCollapsed={toggleCollapsed}
+                closeMobile={closeMobile}
+              />
+            </div>
           </div>
         </div>
       )}
