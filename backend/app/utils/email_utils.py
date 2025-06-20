@@ -34,4 +34,8 @@ async def send_assignment_notification(to_email: str, entity_type: str, entity_n
         f"Please log in to the CRM to view the details.\n\n"
         f"— {MAIL_FROM_NAME}"
     )
-    await send_email(subject, to_email, body)
+    try:
+        await send_email(subject, to_email, body)
+    except Exception as e:
+        # Optional: log the error so it's not silent
+        print(f"Failed to send assignment notification: {e}")

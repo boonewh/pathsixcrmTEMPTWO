@@ -131,7 +131,7 @@ export default function AdminProjectsPage() {
                   {p.client_id && p.client_name && (
                     <li>
                       <Link to={`/clients/${p.client_id}`} className="text-blue-600 hover:underline">
-                        Client: {p.client_name}
+                        Account: {p.client_name}
                       </Link>
                     </li>
                   )}

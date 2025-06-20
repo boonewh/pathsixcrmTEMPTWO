@@ -10,6 +10,7 @@ from app.routes.activity import activity_bp
 from app.routes.users import users_bp
 from app.routes.search import search_bp
 from app.routes.utils import utils_bp
+from app.routes.contacts import contacts_bp
 
 def register_blueprints(app):
     app.register_blueprint(auth_bp)
@@ -23,3 +24,4 @@ def register_blueprints(app):
     app.register_blueprint(users_bp)
     app.register_blueprint(search_bp)
     app.register_blueprint(utils_bp)
+    app.register_blueprint(contacts_bp)

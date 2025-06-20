@@ -12,6 +12,7 @@ import { Client, Interaction, Account } from "@/types";
 import { apiFetch } from "@/lib/api";
 import CompanyNotes from "@/components/ui/CompanyNotes";
 import CompanyInteractions from "@/components/ui/CompanyInteractions";
+import CompanyContacts from "@/components/ui/CompanyContacts";
 
 export default function ClientDetailPage() {
   const { id } = useParams();
@@ -239,6 +240,12 @@ export default function ClientDetailPage() {
               alert("Failed to save notes.");
             }
           }}
+        />
+
+        <CompanyContacts
+          token={token!}
+          entityType="client"
+          entityId={client.id}
         />
 
         {/* Projects Section */}

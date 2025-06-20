@@ -127,6 +127,34 @@ class Lead(Base):
 
     def __repr__(self):
         return f"<Lead {self.name}>"
+    
+
+class Contact(Base):
+    __tablename__ = 'contacts'
+
+    id = Column(Integer, primary_key=True)
+    tenant_id = Column(Integer, nullable=False, index=True)
+
+    client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
+    lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
+
+    first_name = Column(String(100))
+    last_name = Column(String(100))
+    title = Column(String(100))
+    email = Column(String(120), index=True)
+    phone = Column(String(20))
+    phone_label = Column(String(20), default="work")
+    secondary_phone = Column(String(20), nullable=True)
+    secondary_phone_label = Column(String(20), nullable=True)
+    notes = Column(Text)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    client = relationship("Client", backref="contacts")
+    lead = relationship("Lead", backref="contacts")
+
+    def __repr__(self):
+        return f"<Contact {self.first_name} {self.last_name}>"
+
 
 class Project(Base):
     __tablename__ = 'projects'

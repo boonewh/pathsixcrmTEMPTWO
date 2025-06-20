@@ -12,7 +12,7 @@ import { Lead, Interaction } from "@/types";
 import { apiFetch } from "@/lib/api";
 import CompanyNotes from "@/components/ui/CompanyNotes";
 import CompanyInteractions from "@/components/ui/CompanyInteractions";
-
+import CompanyContacts from "@/components/ui/CompanyContacts";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
@@ -328,6 +328,13 @@ export default function LeadDetailPage() {
         setShowMenu={setShowNoteMenu}
         setNoteDraft={setNoteDraft}
       />
+
+      <CompanyContacts
+        token={token!}
+        entityType="client"
+        entityId={lead.id}
+      />
+
 
       <details className="bg-white rounded shadow-sm border">
         <summary className="cursor-pointer px-4 py-2 font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-t flex items-center gap-2">
