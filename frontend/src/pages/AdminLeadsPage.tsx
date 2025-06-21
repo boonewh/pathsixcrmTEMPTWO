@@ -47,11 +47,12 @@ export default function AdminLeadsPage() {
     fetchData();
   }, [token]);
 
-  const filteredLeads = leads.filter(
-    (lead) =>
-      lead.created_by_name === selectedEmail ||
-      lead.assigned_to_name === selectedEmail
-  );
+  const filteredLeads = leads.filter((lead) => {
+    if (lead.assigned_to_name) {
+      return lead.assigned_to_name === selectedEmail;
+    }
+    return lead.created_by_name === selectedEmail;
+  });
 
   return (
     <div className="p-6 space-y-10">

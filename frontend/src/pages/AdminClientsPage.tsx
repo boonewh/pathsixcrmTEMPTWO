@@ -56,11 +56,12 @@ export default function AdminClientsPage() {
     fetchData();
   }, [token]);
 
-  const filteredClients = clients.filter(
-    (client) =>
-      client.created_by_name === selectedEmail ||
-      client.assigned_to_name === selectedEmail
-  );
+  const filteredClients = clients.filter((client) => {
+    if (client.assigned_to_name) {
+      return client.assigned_to_name === selectedEmail;
+    }
+    return client.created_by_name === selectedEmail;
+  });
 
   return (
     <div className="p-6 space-y-10">

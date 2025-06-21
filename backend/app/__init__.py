@@ -38,9 +38,9 @@ def create_app():
     register_blueprints(app)
 
     # ✅ Before serving: warm up DB, then start keep-alive
-    @app.before_serving
-    async def startup():
-        await warmup_db()
-        app.add_background_task(keep_db_alive)
+    # @app.before_serving
+    # async def startup():
+        #await warmup_db()
+        #app.add_background_task(keep_db_alive)
 
     return app

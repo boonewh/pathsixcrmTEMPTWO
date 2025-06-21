@@ -242,6 +242,11 @@ async def assign_lead(lead_id):
     data = await request.get_json()
     assigned_to = data.get("assigned_to")
 
+    # DEBUG: Add logging
+    print(f"DEBUG: Assigning lead {lead_id} to user {assigned_to}")
+    print(f"DEBUG: Data received: {data}")
+    print(f"DEBUG: Current user: {user.email} (ID: {user.id})")
+
     session = SessionLocal()
     try:
         lead = session.query(Lead).filter(
@@ -251,24 +256,60 @@ async def assign_lead(lead_id):
         ).first()
 
         if not lead:
+            print(f"DEBUG: Lead {lead_id} not found")
             return jsonify({"error": "Lead not found"}), 404
+
+        print(f"DEBUG: Found lead: {lead.name}")
+        print(f"DEBUG: Current assigned_to: {lead.assigned_to}")
+
+        # Validate that assigned_to is a valid user
+        if assigned_to:
+            assigned_user = session.query(User).filter(
+                User.id == assigned_to,
+                User.tenant_id == user.tenant_id,
+                User.is_active == True
+            ).first()
+            
+            if not assigned_user:
+                print(f"DEBUG: User {assigned_to} not found or not active")
+                return jsonify({"error": f"User {assigned_to} not found or not active"}), 400
+            
+            print(f"DEBUG: Assigning to user: {assigned_user.email}")
 
         lead.assigned_to = assigned_to
         lead.updated_by = user.id
         lead.updated_at = datetime.utcnow()
 
-        # ✅ Send email to assigned user
-        assigned_user = session.query(User).get(assigned_to)
-        if assigned_user:
-            await send_assignment_notification(
-                to_email=assigned_user.email,
-                entity_type="lead",
-                entity_name=lead.name,
-                assigned_by=user.email
-            )
+        print(f"DEBUG: About to commit changes")
 
-        session.commit()
-        return jsonify({"message": "Lead assigned successfully"})
+        # Send email to assigned user (before commit in case it fails)
+        if assigned_to:
+            assigned_user = session.query(User).get(assigned_to)
+            if assigned_user:
+                try:
+                    await send_assignment_notification(
+                        to_email=assigned_user.email,
+                        entity_type="lead",
+                        entity_name=lead.name,
+                        assigned_by=user.email
+                    )
+                    print(f"DEBUG: Email notification sent to {assigned_user.email}")
+                except Exception as email_error:
+                    print(f"DEBUG: Email notification failed: {email_error}")
+                    # Don't fail the assignment if email fails
+
+        try:
+            session.commit()
+            print(f"DEBUG: Successfully committed assignment")
+            return jsonify({"message": "Lead assigned successfully"})
+        except Exception as e:
+            print(f"DEBUG: Commit failed: {e}")
+            session.rollback()
+            return jsonify({"error": f"Database error: {str(e)}"}), 500
+
+    except Exception as e:
+        print(f"DEBUG: Unexpected error: {e}")
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
     finally:
         session.close()
 

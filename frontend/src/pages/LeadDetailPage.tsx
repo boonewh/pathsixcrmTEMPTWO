@@ -433,7 +433,7 @@ export default function LeadDetailPage() {
                 disabled={!selectedUserId || isAssigning}
                 onClick={async () => {
                   setIsAssigning(true);
-                  const res = await apiFetch(`/clients/${id}/assign`, {
+                  const res = await apiFetch(`/leads/${id}/assign`, {
                     method: "PUT",
                     headers: {
                       "Content-Type": "application/json",

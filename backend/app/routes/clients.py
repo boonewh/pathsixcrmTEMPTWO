@@ -7,6 +7,7 @@ from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
 from app.utils.email_utils import send_assignment_notification
 
+
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
 
 @clients_bp.route("/", methods=["GET"])
@@ -240,9 +241,6 @@ async def assign_client(client_id):
     finally:
         session.close()
 
-
-
-from sqlalchemy.orm import joinedload
 
 @clients_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
