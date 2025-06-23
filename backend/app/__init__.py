@@ -1,6 +1,6 @@
 from quart import Quart
 from quart_cors import cors
-from app.config import SECRET_KEY
+from .config import SECRET_KEY
 from app.routes import register_blueprints
 from app.utils.keep_alive import keep_db_alive  # ✅ this still works
 from app.database import SessionLocal

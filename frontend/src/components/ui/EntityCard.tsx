@@ -4,6 +4,7 @@ import { MoreVertical } from "lucide-react";
 
 interface EntityCardProps {
   title: React.ReactNode;
+  typeLabel?: string; 
   details?: React.ReactNode;
   editing?: boolean;
   editForm?: React.ReactNode;
@@ -16,6 +17,7 @@ interface EntityCardProps {
 
 const EntityCard: FC<EntityCardProps> = ({
   title,
+  typeLabel,
   details,
   editing = false,
   editForm,
@@ -38,6 +40,11 @@ const EntityCard: FC<EntityCardProps> = ({
           {editing ? editForm : (
             <>
               <p><strong>{title}</strong></p>
+              {typeLabel && (
+                <p className="text-xs text-gray-500 italic mb-1">
+                  Type: {typeLabel}
+                </p>
+              )}
               <div className="text-sm text-gray-700 space-y-1">
                 {details}
               </div>
@@ -101,7 +108,6 @@ const EntityCard: FC<EntityCardProps> = ({
             </Menu.Items>
           </Menu>
         )}
-
       </div>
     </div>
   );

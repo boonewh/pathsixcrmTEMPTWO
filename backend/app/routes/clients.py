@@ -1,12 +1,12 @@
 from quart import Blueprint, request, jsonify
+from datetime import datetime
 from app.models import Client, ActivityLog, ActivityType, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
-from datetime import datetime
+from app.utils.email_utils import send_assignment_notification
+from app.constants import TYPE_OPTIONS, PHONE_LABELS
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
-from app.utils.email_utils import send_assignment_notification
-
 
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
 
@@ -28,35 +28,41 @@ async def list_clients():
             )
         ).all()
 
-        response = jsonify([
+        return jsonify([
             {
                 "id": c.id,
                 "name": c.name,
                 "contact_person": c.contact_person,
+                "contact_title": c.contact_title,
                 "email": c.email,
                 "phone": c.phone,
+                "phone_label": c.phone_label,
+                "secondary_phone": c.secondary_phone,
+                "secondary_phone_label": c.secondary_phone_label,
                 "address": c.address,
                 "city": c.city,
                 "state": c.state,
                 "zip": c.zip,
                 "notes": c.notes,
-                "created_at": c.created_at.isoformat()
+                "type": c.type,
+                "created_at": c.created_at.isoformat() + "Z"
             } for c in clients
         ])
-        response.headers["Cache-Control"] = "no-store"
-        return response
     finally:
         session.close()
-
 
 
 @clients_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_client():
-    data = await request.get_json()
     user = request.user
+    data = await request.get_json()
     session = SessionLocal()
     try:
+        client_type = data.get("type", TYPE_OPTIONS[0])
+        if client_type not in TYPE_OPTIONS:
+            client_type = TYPE_OPTIONS[0]
+
         client = Client(
             tenant_id=user.tenant_id,
             created_by=user.id,
@@ -65,7 +71,7 @@ async def create_client():
             contact_title=data.get("contact_title"),
             email=data.get("email"),
             phone=data.get("phone"),
-            phone_label=data.get("phone_label", "work"),
+            phone_label=data.get("phone_label", PHONE_LABELS[0]),
             secondary_phone=data.get("secondary_phone"),
             secondary_phone_label=data.get("secondary_phone_label"),
             address=data.get("address"),
@@ -73,6 +79,8 @@ async def create_client():
             state=data.get("state"),
             zip=data.get("zip"),
             notes=data.get("notes"),
+            type=client_type,
+            created_at=datetime.utcnow()
         )
         session.add(client)
         session.commit()
@@ -80,6 +88,7 @@ async def create_client():
         return jsonify({"id": client.id}), 201
     finally:
         session.close()
+
 
 @clients_bp.route("/<int:client_id>", methods=["GET"])
 @requires_auth()
@@ -93,7 +102,6 @@ async def get_client(client_id):
             Client.deleted_at == None,
         )
 
-        # Only restrict visibility if not admin
         if not any(role.name == "admin" for role in user.roles):
             client_query = client_query.filter(
                 or_(
@@ -132,6 +140,7 @@ async def get_client(client_id):
             "state": client.state,
             "zip": client.zip,
             "notes": client.notes,
+            "type": client.type,
             "created_at": client.created_at.isoformat() + "Z"
         })
         response.headers["Cache-Control"] = "no-store"
@@ -139,11 +148,12 @@ async def get_client(client_id):
     finally:
         session.close()
 
+
 @clients_bp.route("/<int:client_id>", methods=["PUT"])
 @requires_auth()
 async def update_client(client_id):
-    data = await request.get_json()
     user = request.user
+    data = await request.get_json()
     session = SessionLocal()
     try:
         client = session.query(Client).filter(
@@ -160,11 +170,13 @@ async def update_client(client_id):
 
         for field in [
             "name", "contact_person", "contact_title", "email", "phone", "phone_label",
-            "secondary_phone", "secondary_phone_label",
-            "address", "city", "state", "zip", "notes"
+            "secondary_phone", "secondary_phone_label", "address", "city", "state", "zip", "notes"
         ]:
             if field in data:
-                setattr(client, field, data[field])
+                setattr(client, field, data[field] or None)
+
+        if "type" in data and data["type"] in TYPE_OPTIONS:
+            client.type = data["type"]
 
         client.updated_by = user.id
         client.updated_at = datetime.utcnow()
@@ -223,23 +235,32 @@ async def assign_client(client_id):
         if not client:
             return jsonify({"error": "Client not found"}), 404
 
+        # Optional: validate user exists and is active
+        assigned_user = session.query(User).filter(
+            User.id == assigned_to,
+            User.tenant_id == user.tenant_id,
+            User.is_active == True
+        ).first()
+
+        if not assigned_user:
+            return jsonify({"error": "Assigned user not found or inactive"}), 400
+
         client.assigned_to = assigned_to
         client.updated_by = user.id
         client.updated_at = datetime.utcnow()
 
-        assigned_user = session.query(User).get(assigned_to)
-        if assigned_user:
-            await send_assignment_notification(
-                to_email=assigned_user.email,
-                entity_type="client",
-                entity_name=client.name,
-                assigned_by=user.email
-            )
+        await send_assignment_notification(
+            to_email=assigned_user.email,
+            entity_type="client",
+            entity_name=client.name,
+            assigned_by=user.email
+        )
 
         session.commit()
         return jsonify({"message": "Client assigned successfully"})
     finally:
         session.close()
+
 
 
 @clients_bp.route("/all", methods=["GET"])
@@ -267,6 +288,7 @@ async def list_all_clients():
                 "secondary_phone_label": c.secondary_phone_label,
                 "contact_person": c.contact_person,
                 "contact_title": c.contact_title,
+                "type": c.type,
                 "created_by": c.created_by,
                 "created_by_name": c.created_by_user.email if c.created_by_user else None,
                 "assigned_to_name": (
@@ -278,7 +300,6 @@ async def list_all_clients():
         ])
     finally:
         session.close()
-
 
 
 @clients_bp.route("/assigned", methods=["GET"])
@@ -306,10 +327,9 @@ async def list_assigned_clients():
                 "secondary_phone_label": c.secondary_phone_label,
                 "contact_person": c.contact_person,
                 "contact_title": c.contact_title,
+                "type": c.type,
                 "assigned_to_name": c.assigned_user.email if c.assigned_user else None,
             } for c in clients
         ])
     finally:
         session.close()
-
-

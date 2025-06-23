@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import EntityCard from "@/components/ui/EntityCard";
-import { Mail, Phone, MapPin, Flag, User, StickyNote } from "lucide-react";
+import { Mail, Phone, MapPin, Flag, User, StickyNote, Wrench } from "lucide-react";
 import { useAuth, userHasRole } from "@/authContext";
 import { Link } from "react-router-dom";
 import CompanyForm from "@/components/ui/CompanyForm";
@@ -26,6 +26,7 @@ export default function Leads() {
     zip: "",
     lead_status: "open",
     notes: "",
+    type: "None",
   });
   const { token, user } = useAuth();
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -163,9 +164,19 @@ useEffect(() => {
           <EntityCard
             key={lead.id}
             title={
-              <Link to={`/leads/${lead.id}`} className="hover:underline">
-                {lead.name}
-              </Link>
+              <span className="block">
+                <Link
+                  to={`/leads/${lead.id}`}
+                  className="hover:underline font-medium text-base block"
+                >
+                  {lead.name}
+                </Link>
+                <span className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                  <Wrench size={14} className="text-gray-500" />
+                  <span className="text-gray-500 font-medium">Type:</span>{" "}
+                  {lead.type || "None"}
+                </span>
+              </span>
             }
             editing={currentlyEditingId === lead.id}
             onEdit={() => handleEdit(lead)}

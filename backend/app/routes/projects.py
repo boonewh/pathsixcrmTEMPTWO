@@ -3,6 +3,7 @@ from datetime import datetime
 from app.models import Project, ActivityLog, ActivityType, Client, Lead
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
+from app.constants import PROJECT_STATUS_OPTIONS
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_
 
@@ -39,6 +40,7 @@ async def list_projects():
                 "project_name": p.project_name,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
+                "notes": p.notes,
                 "project_start": p.project_start.isoformat() if p.project_start else None,
                 "project_end": p.project_end.isoformat() if p.project_end else None,
                 "project_worth": p.project_worth,
@@ -87,6 +89,7 @@ async def get_project(project_id):
             "project_name": project.project_name,
             "project_status": project.project_status,
             "project_description": project.project_description,
+            "notes": project.notes,
             "project_start": project.project_start.isoformat() + "Z" if project.project_start else None,
             "project_end": project.project_end.isoformat() + "Z" if project.project_end else None,
             "project_worth": project.project_worth,
@@ -100,6 +103,7 @@ async def get_project(project_id):
     finally:
         session.close()
 
+
 @projects_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_project():
@@ -108,13 +112,18 @@ async def create_project():
     session = SessionLocal()
 
     try:
+        status = data.get("project_status", PROJECT_STATUS_OPTIONS[0])
+        if status not in PROJECT_STATUS_OPTIONS:
+            status = PROJECT_STATUS_OPTIONS[0]
+
         project = Project(
             tenant_id=user.tenant_id,
             client_id=data.get("client_id"),
             lead_id=data.get("lead_id"),
             project_name=data["project_name"],
-            project_status=data.get("project_status", "pending"),
+            project_status=status,
             project_description=data.get("project_description"),
+            notes=data.get("notes"),
             project_start=parse_date_with_default_time(data.get("project_start")),
             project_end=parse_date_with_default_time(data.get("project_end")),
             project_worth=data.get("project_worth"),
@@ -125,11 +134,6 @@ async def create_project():
         session.commit()
         session.refresh(project)
 
-        if project.client:
-            session.refresh(project.client)
-        if project.lead:
-            session.refresh(project.lead)
-
         return jsonify({
             "id": project.id,
             "project_name": project.project_name,
@@ -139,6 +143,7 @@ async def create_project():
         }), 201
     finally:
         session.close()
+
 
 @projects_bp.route("/<int:project_id>", methods=["PUT"])
 @requires_auth()
@@ -156,27 +161,23 @@ async def update_project(project_id):
             return jsonify({"error": "Project not found"}), 404
 
         for field in [
-            "project_name",
-            "project_status",
-            "project_description",
-            "project_start",
-            "project_end",
-            "project_worth",
-            "client_id",
-            "lead_id"
+            "project_name", "project_description", "project_worth", "client_id", "lead_id", "notes"
         ]:
             if field in data:
-                value = data[field]
-                if field in ["project_start", "project_end"] and value:
-                    value = parse_date_with_default_time(value)
-                setattr(project, field, value)
+                setattr(project, field, data[field])
+
+        if "project_status" in data:
+            status = data["project_status"]
+            if status in PROJECT_STATUS_OPTIONS:
+                project.project_status = status
+
+        if "project_start" in data:
+            project.project_start = parse_date_with_default_time(data["project_start"])
+        if "project_end" in data:
+            project.project_end = parse_date_with_default_time(data["project_end"])
 
         session.commit()
         session.refresh(project)
-        if project.client is not None:
-            session.refresh(project.client)
-        if project.lead is not None:
-            session.refresh(project.lead)
         return jsonify({
             "id": project.id,
             "project_name": project.project_name,
@@ -186,6 +187,8 @@ async def update_project(project_id):
         })
     finally:
         session.close()
+
+
 
 @projects_bp.route("/<int:project_id>", methods=["DELETE"])
 @requires_auth()
@@ -240,6 +243,7 @@ async def list_all_projects():
                 "project_name": p.project_name,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
+                "notes": p.notes,
                 "project_start": p.project_start.isoformat() if p.project_start else None,
                 "project_end": p.project_end.isoformat() if p.project_end else None,
                 "project_worth": p.project_worth,
@@ -289,6 +293,7 @@ async def list_projects_by_client(client_id):
                 "project_name": p.project_name,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
+                "notes": p.notes,
                 "project_start": p.project_start.isoformat() if p.project_start else None,
                 "project_end": p.project_end.isoformat() if p.project_end else None,
                 "project_worth": p.project_worth,
@@ -328,6 +333,7 @@ async def list_projects_by_lead(lead_id):
                 "project_name": p.project_name,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
+                "notes": p.notes,
                 "project_start": p.project_start.isoformat() if p.project_start else None,
                 "project_end": p.project_end.isoformat() if p.project_end else None,
                 "project_worth": p.project_worth,

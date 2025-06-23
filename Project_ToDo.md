@@ -217,3 +217,88 @@ We can build that straight onto this solid foundation.
 
 COMPONENTS:
 Take LeadDetailPage and ClientDetailPage and extract reusable components.
+
+
+
+We started putting more validation stuff in the backend by creating constants.py and pushing that throughout the backend. Continue with
+
+✅ To Use Backend TYPE_OPTIONS Properly
+1. Validate type in all POST/PUT routes
+In both create_client(), update_client(), create_lead(), and update_lead():
+
+python
+Copy
+Edit
+from app.constants import TYPE_OPTIONS
+
+# Example
+type_value = data.get("type", "None")
+if type_value not in TYPE_OPTIONS:
+    return jsonify({"error": "Invalid type"}), 400
+2. Add type to JSON responses
+In your response objects, make sure type is returned:
+
+python
+Copy
+Edit
+"type": client.type,
+This applies to:
+
+/clients/
+
+/clients/<id>
+
+/leads/
+
+/leads/<id>
+
+/clients/all
+
+/leads/all
+
+3. (Optional) Add /api/constants/type-options route
+Create a new route in something like routes/constants.py:
+
+python
+Copy
+Edit
+from quart import Blueprint, jsonify
+from app.constants import TYPE_OPTIONS
+
+constants_bp = Blueprint("constants", __name__, url_prefix="/api/constants")
+
+@constants_bp.route("/type-options", methods=["GET"])
+async def get_type_options():
+    return jsonify(TYPE_OPTIONS)
+Then don’t forget to register the blueprint in app/routes/__init__.py:
+
+python
+Copy
+Edit
+from .constants import constants_bp
+app.register_blueprint(constants_bp)
+4. (Optional) Load dropdowns dynamically in React
+Replace the hardcoded list in CompanyForm.tsx with a fetch:
+
+tsx
+Copy
+Edit
+useEffect(() => {
+  fetch("/api/constants/type-options")
+    .then((res) => res.json())
+    .then(setTypeOptions)
+    .catch(() => setTypeOptions(["None"]));
+}, []);
+Then render the dropdown with that list.
+
+✅ Bonus: Add test coverage
+Add unit tests or Postman tests that:
+
+Try posting invalid types (expect 400)
+
+Try posting valid types (expect 201)
+
+Confirm type is returned in API responses
+
+
+__________________________________________________________________________________________________

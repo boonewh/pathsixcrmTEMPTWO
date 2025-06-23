@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import EntityCard from "@/components/ui/EntityCard";
 import { useAuth } from "@/authContext";
-import { Mail, Phone, MapPin, User, StickyNote } from "lucide-react";
+import { Mail, Phone, MapPin, User, StickyNote, Wrench } from "lucide-react";
 import { Link } from "react-router-dom";
 import CompanyForm from "@/components/ui/CompanyForm";
 import { Client } from "@/types";
@@ -27,6 +27,7 @@ export default function Customers() {
     state: "",
     zip: "",
     notes: "",
+    type: "None", 
   });
 
   const [error, setError] = useState("");
@@ -146,9 +147,19 @@ export default function Customers() {
           <EntityCard
             key={client.id}
             title={
-              <Link to={`/clients/${client.id}`} className="hover:underline">
-                {client.name}
-              </Link>
+              <span className="block">
+                <Link
+                  to={`/clients/${client.id}`}
+                  className="hover:underline font-medium text-base block"
+                >
+                  {client.name}
+                </Link>
+                <span className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+                  <Wrench size={14} className="text-gray-500" />
+                  <span className="text-gray-500 font-medium">Type:</span>{" "}
+                  {client.type || "None"}
+                </span>
+              </span>
             }
             editing={editingId === client.id}
             onEdit={() => {

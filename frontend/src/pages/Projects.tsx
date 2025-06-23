@@ -177,8 +177,12 @@ export default function Projects() {
                   {project.project_worth && <li>Worth: ${project.project_worth.toLocaleString()}</li>}
                   {project.project_start && <li>Start: {new Date(project.project_start).toLocaleDateString()}</li>}
                   {project.project_end && <li>End: {new Date(project.project_end).toLocaleDateString()}</li>}
+                  {project.notes && (
+                    <li className="whitespace-pre-wrap text-gray-600">
+                      <strong>Notes:</strong> {project.notes?.trim() || "No notes provided."}
+                    </li>
+                  )}
                 </ul>
-
               }
             />
           </div>

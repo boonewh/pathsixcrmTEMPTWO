@@ -65,6 +65,7 @@ class Client(Base):
     state = Column(String(100))
     zip = Column(String(20))
     status = Column(String(50), default='new')
+    type = Column(String(50), nullable=True, default="None")
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     deleted_at = Column(DateTime, nullable=True)
@@ -116,6 +117,7 @@ class Lead(Base):
     city = Column(String(100))
     state = Column(String(100))
     zip = Column(String(20))
+    type = Column(String(50), nullable=True, default="None")
     notes = Column(Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     lead_status = Column(String(20), default="open")  # Valid: "open", "converted", "closed", "lost"
@@ -165,6 +167,7 @@ class Project(Base):
     tenant_id = Column(Integer, nullable=False)
     project_name = Column(String(255), nullable=False)
     project_description = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
     project_status = Column(String(20), nullable=False) # Valid values: "pending", "won", "lost"
     project_start = Column(DateTime, nullable=True)
     project_end = Column(DateTime, nullable=True)

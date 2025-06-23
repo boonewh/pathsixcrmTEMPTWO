@@ -27,6 +27,7 @@ export interface Client {
   notes?: string;
   created_at: string;
   accounts?: Account[];
+  type?: string;
 }
 
 
@@ -80,6 +81,7 @@ export interface Lead {
   created_by_name?: string;
   lead_status: "open" | "converted" | "closed" | "lost";
   converted_on?: string;
+  type?: string;
 }
 
 
@@ -96,4 +98,5 @@ export interface Project {
   client_name?: string;
   lead_name?: string;
   created_at?: string;
+  notes?: string;
 }

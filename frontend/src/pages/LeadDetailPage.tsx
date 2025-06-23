@@ -6,6 +6,7 @@ import {
   MapPin,
   User,
   FolderKanban,
+  Wrench,
 } from "lucide-react";
 import { useAuth, userHasRole } from "@/authContext";
 import { Lead, Interaction } from "@/types";
@@ -202,7 +203,11 @@ export default function LeadDetailPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">{lead.name}</h1>
-
+      <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
+        <Wrench size={14} className="text-gray-500" />
+        <span className="text-gray-500 font-medium">Type:</span>{" "}
+        {lead.type || "None"}
+      </div>
       <ul className="text-sm text-gray-700 space-y-1">
         {lead.contact_person && (
           <li className="flex items-start gap-2">

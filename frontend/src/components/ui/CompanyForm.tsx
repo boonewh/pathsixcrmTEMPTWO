@@ -15,6 +15,26 @@ export default function ClientForm({ form, setForm }: ClientFormProps) {
         <Label htmlFor="name">Company Name</Label>
         <Input id="name" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
       </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="type">Type</Label>
+        <select
+          id="type"
+          value={form.type || "None"}
+          onChange={(e) => setForm({ ...form, type: e.target.value })}
+          className="border border-input bg-background text-sm rounded-md px-2 py-1"
+        >
+          <option value="None">None</option>
+          <option value="Secondary Containment">Secondary Containment</option>
+          <option value="Tanks">Tanks</option>
+          <option value="Pipe">Pipe</option>
+          <option value="Rental">Rental</option>
+          <option value="Food and Beverage">Food and Beverage</option>
+          <option value="Bridge">Bridge</option>
+          <option value="Culvert">Culvert</option>
+        </select>
+      </div>
+
       <div className="grid gap-2">
         <Label htmlFor="contact_person">Contact Person</Label>
         <Input id="contact_person" value={form.contact_person} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} />
@@ -23,6 +43,7 @@ export default function ClientForm({ form, setForm }: ClientFormProps) {
         <Label htmlFor="contact_title">Title</Label>
         <Input id="contact_title" value={form.contact_title} onChange={(e) => setForm({ ...form, contact_title: e.target.value })} />
       </div>
+
       <div className="grid gap-2">
         <Label htmlFor="email">Email</Label>
         <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />

@@ -150,6 +150,16 @@ export default function ProjectForm({
         />
       </div>
 
+      <div className="grid gap-2">
+        <Label htmlFor="notes">Notes</Label>
+        <Textarea
+          id="notes"
+          className="w-full"
+          value={form.notes || ""}
+          onChange={(e) => setForm({ ...form, notes: e.target.value })}
+        />
+      </div>
+
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="grid gap-2">
           <Label htmlFor="client_id">

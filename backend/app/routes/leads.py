@@ -3,9 +3,10 @@ from datetime import datetime
 from app.models import Lead, ActivityLog, ActivityType, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
+from app.utils.email_utils import send_assignment_notification
+from app.constants import TYPE_OPTIONS, LEAD_STATUS_OPTIONS, PHONE_LABELS
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
-from app.utils.email_utils import send_assignment_notification
 
 leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 
@@ -55,7 +56,8 @@ async def list_leads():
                     else None
                 ),
                 "lead_status": l.lead_status,
-                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None
+                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
+                "type": l.type
             } for l in leads
         ])
         response.headers["Cache-Control"] = "no-store"
@@ -71,6 +73,10 @@ async def create_lead():
     data = await request.get_json()
     session = SessionLocal()
     try:
+        lead_type = data.get("type", TYPE_OPTIONS[0])
+        if lead_type not in TYPE_OPTIONS:
+            lead_type = TYPE_OPTIONS[0]
+
         lead = Lead(
             tenant_id=user.tenant_id,
             created_by=user.id,
@@ -79,7 +85,7 @@ async def create_lead():
             contact_title=data.get("contact_title"),
             email=data.get("email"),
             phone=data.get("phone"),
-            phone_label=data.get("phone_label", "work"),
+            phone_label=data.get("phone_label", PHONE_LABELS[0]),
             secondary_phone=data.get("secondary_phone"),
             secondary_phone_label=data.get("secondary_phone_label"),
             address=data.get("address"),
@@ -87,6 +93,7 @@ async def create_lead():
             state=data.get("state"),
             zip=data.get("zip"),
             notes=data.get("notes"),
+            type=lead_type,
             created_at=datetime.utcnow()
         )
         session.add(lead)
@@ -95,7 +102,6 @@ async def create_lead():
         return jsonify({"id": lead.id}), 201
     finally:
         session.close()
-
 
 @leads_bp.route("/<int:lead_id>", methods=["GET"])
 @requires_auth()
@@ -153,13 +159,13 @@ async def get_lead(lead_id):
             "notes": lead.notes,
             "created_at": lead.created_at.isoformat() + "Z",
             "lead_status": lead.lead_status,
-            "converted_on": lead.converted_on.isoformat() + "Z" if lead.converted_on else None
+            "converted_on": lead.converted_on.isoformat() + "Z" if lead.converted_on else None,
+            "type": lead.type
         })
         response.headers["Cache-Control"] = "no-store"
         return response
     finally:
         session.close()
-
 
 
 @leads_bp.route("/<int:lead_id>", methods=["PUT"])
@@ -190,13 +196,15 @@ async def update_lead(lead_id):
             if field in data:
                 setattr(lead, field, data[field] or None)
 
-        # Handle lead_status and converted_on
         if "lead_status" in data:
             new_status = data["lead_status"]
-            if new_status in ["open", "converted", "closed", "lost"]:
+            if new_status in LEAD_STATUS_OPTIONS:
                 if new_status == "converted" and lead.lead_status != "converted":
                     lead.converted_on = datetime.utcnow()
                 lead.lead_status = new_status
+
+        if "type" in data and data["type"] in TYPE_OPTIONS:
+            lead.type = data["type"]
 
         lead.updated_by = user.id
         lead.updated_at = datetime.utcnow()
@@ -347,6 +355,7 @@ async def list_all_leads_admin():
             "created_at": l.created_at.isoformat() + "Z",
             "lead_status": l.lead_status,
             "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
+            "type": l.type,
             "assigned_to_name": (
                 l.assigned_user.email if l.assigned_user
                 else l.created_by_user.email if l.created_by_user
@@ -358,8 +367,6 @@ async def list_all_leads_admin():
         return response
     finally:
         session.close()
-
-
 
 
 @leads_bp.route("/assigned", methods=["GET"])
@@ -392,7 +399,8 @@ async def list_assigned_leads():
             "assigned_to": l.assigned_to,
             "created_at": l.created_at.isoformat() + "Z",
             "lead_status": l.lead_status,
-            "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None
+            "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
+            "type": l.type
         } for l in leads])
         response.headers["Cache-Control"] = "no-store"
         return response

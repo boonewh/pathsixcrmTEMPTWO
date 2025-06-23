@@ -6,6 +6,7 @@ import {
   MapPin,
   User,
   FolderKanban,
+  Wrench,
 } from "lucide-react";
 import { useAuth, userHasRole } from "@/authContext";
 import { Client, Interaction, Account } from "@/types";
@@ -111,6 +112,12 @@ export default function ClientDetailPage() {
         <h1 className="text-2xl font-bold">{client.name}</h1>
 
         <ul className="text-sm text-gray-700 space-y-1">
+    {client.type && (
+      <li className="flex items-center gap-2">
+        <Wrench size={14} className="text-gray-500" />
+        <span className="text-gray-500 font-medium">Type:</span> {client.type}
+      </li>
+    )}
     {client.contact_person && (
       <li className="flex items-start gap-2">
         <User size={14} className="mt-[2px]" />
