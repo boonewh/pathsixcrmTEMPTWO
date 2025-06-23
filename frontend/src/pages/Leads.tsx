@@ -51,7 +51,7 @@ useEffect(() => {
   fetchLeads();
 
   if (userHasRole(user, "admin")) {
-    fetch("/api/users/", {
+    apiFetch("/users/", {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then((res) => res.json())

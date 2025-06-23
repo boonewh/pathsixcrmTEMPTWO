@@ -4,6 +4,7 @@ from .config import SECRET_KEY
 from app.routes import register_blueprints
 from app.utils.keep_alive import keep_db_alive  # ✅ this still works
 from app.database import SessionLocal
+from sqlalchemy import text
 import asyncio
 
 # 👇 Add warmup function directly here
@@ -13,7 +14,7 @@ async def warmup_db():
     while retries > 0:
         try:
             session = SessionLocal()
-            session.execute("SELECT 1")
+            session.execute(text("SELECT 1"))  # ✅ Wrap in text()
             session.close()
             print("[Warmup] Postgres is ready.")
             return
@@ -37,10 +38,10 @@ def create_app():
     app.config.from_pyfile("config.py")
     register_blueprints(app)
 
-    # ✅ Before serving: warm up DB, then start keep-alive
-    # @app.before_serving
-    # async def startup():
-        #await warmup_db()
-        #app.add_background_task(keep_db_alive)
+    #✅ Before serving: warm up DB, then start keep-alive
+    @app.before_serving
+    async def startup():
+        await warmup_db()
+        app.add_background_task(keep_db_alive)
 
     return app
