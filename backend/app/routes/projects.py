@@ -129,7 +129,7 @@ async def create_project():
             notes=data.get("notes"),
             project_start=parse_date_with_default_time(data.get("project_start")),
             project_end=parse_date_with_default_time(data.get("project_end")),
-            project_worth=data.get("project_worth"),
+            project_worth=data.get("project_worth") or 0,
             created_by=user.id,
             created_at=datetime.utcnow()
         )
@@ -168,8 +168,11 @@ async def update_project(project_id):
             "project_name", "type", "project_description", "project_worth", "client_id", "lead_id", "notes"
         ]:
             if field in data:
-                setattr(project, field, data[field])
-
+                if field == "project_worth":
+                    setattr(project, field, data.get("project_worth") or 0)
+                else:
+                    setattr(project, field, data[field])
+                
         if "project_status" in data:
             status = data["project_status"]
             if status in PROJECT_STATUS_OPTIONS:

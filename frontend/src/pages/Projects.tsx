@@ -60,6 +60,10 @@ export default function Projects() {
     const method = creating ? "POST" : "PUT";
     const url = creating ? "/projects/" : `/projects/${editingId}`;
 
+    if (!form.project_worth) {
+      form.project_worth = 0;
+    }
+    
     const res = await apiFetch(url, {
       method,
       headers: { Authorization: `Bearer ${token}` },
