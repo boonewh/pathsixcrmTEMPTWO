@@ -38,6 +38,7 @@ async def list_projects():
             {
                 "id": p.id,
                 "project_name": p.project_name,
+                "type": p.type,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
                 "notes": p.notes,
@@ -87,6 +88,7 @@ async def get_project(project_id):
         return jsonify({
             "id": project.id,
             "project_name": project.project_name,
+            "type": project.type,
             "project_status": project.project_status,
             "project_description": project.project_description,
             "notes": project.notes,
@@ -121,6 +123,7 @@ async def create_project():
             client_id=data.get("client_id"),
             lead_id=data.get("lead_id"),
             project_name=data["project_name"],
+            type=data.get("type", "None"),
             project_status=status,
             project_description=data.get("project_description"),
             notes=data.get("notes"),
@@ -137,6 +140,7 @@ async def create_project():
         return jsonify({
             "id": project.id,
             "project_name": project.project_name,
+            "type": project.type,
             "project_status": project.project_status,
             "client_name": project.client.name if project.client else None,
             "lead_name": project.lead.name if project.lead else None,
@@ -161,7 +165,7 @@ async def update_project(project_id):
             return jsonify({"error": "Project not found"}), 404
 
         for field in [
-            "project_name", "project_description", "project_worth", "client_id", "lead_id", "notes"
+            "project_name", "type", "project_description", "project_worth", "client_id", "lead_id", "notes"
         ]:
             if field in data:
                 setattr(project, field, data[field])
@@ -181,6 +185,7 @@ async def update_project(project_id):
         return jsonify({
             "id": project.id,
             "project_name": project.project_name,
+            "type": project.type,
             "project_status": project.project_status,
             "client_name": project.client.name if project.client else None,
             "lead_name": project.lead.name if project.lead else None,
@@ -241,6 +246,7 @@ async def list_all_projects():
             results.append({
                 "id": p.id,
                 "project_name": p.project_name,
+                "type": p.type,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
                 "notes": p.notes,
@@ -290,6 +296,7 @@ async def list_projects_by_client(client_id):
         return jsonify([
             {
                 "id": p.id,
+                "type": p.type,
                 "project_name": p.project_name,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
@@ -331,6 +338,7 @@ async def list_projects_by_lead(lead_id):
             {
                 "id": p.id,
                 "project_name": p.project_name,
+                "type": p.type,
                 "project_status": p.project_status,
                 "project_description": p.project_description,
                 "notes": p.notes,

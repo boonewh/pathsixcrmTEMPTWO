@@ -167,6 +167,7 @@ class Project(Base):
     tenant_id = Column(Integer, nullable=False)
     project_name = Column(String(255), nullable=False)
     project_description = Column(Text, nullable=True)
+    type = Column(String(50), nullable=True, default="None")
     notes = Column(Text, nullable=True)
     project_status = Column(String(20), nullable=False) # Valid values: "pending", "won", "lost"
     project_start = Column(DateTime, nullable=True)

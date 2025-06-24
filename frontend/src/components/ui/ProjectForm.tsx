@@ -51,6 +51,26 @@ export default function ProjectForm({
       </div>
 
       <div className="grid gap-2">
+        <Label htmlFor="type">Type</Label>
+        <select
+          id="type"
+          value={form.type || "None"}
+          onChange={(e) => setForm({ ...form, type: e.target.value })}
+          className="border border-input bg-background text-sm rounded-md px-2 py-1"
+        >
+          <option value="None">None</option>
+          <option value="Oil & Gas">Oil & Gas</option>
+          <option value="Secondary Containment">Secondary Containment</option>
+          <option value="Tanks">Tanks</option>
+          <option value="Pipe">Pipe</option>
+          <option value="Rental">Rental</option>
+          <option value="Food and Beverage">Food and Beverage</option>
+          <option value="Bridge">Bridge</option>
+          <option value="Culvert">Culvert</option>
+        </select>
+      </div>
+
+      <div className="grid gap-2">
         <Label htmlFor="project_description">Description</Label>
         <Textarea
           id="project_description"

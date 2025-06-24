@@ -151,6 +151,7 @@ export default function Projects() {
               }
               details={
                 <ul className="text-sm text-gray-700 space-y-1">
+                  {project.type && <li>Type: {project.type}</li>}
                   <li>Status: {project.project_status}</li>
                   {project.project_description && <li>{project.project_description}</li>}
 

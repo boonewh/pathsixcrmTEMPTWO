@@ -25,6 +25,7 @@ export default function ClientForm({ form, setForm }: ClientFormProps) {
           className="border border-input bg-background text-sm rounded-md px-2 py-1"
         >
           <option value="None">None</option>
+          <option value="Oil & Gas">Oil & Gas</option>
           <option value="Secondary Containment">Secondary Containment</option>
           <option value="Tanks">Tanks</option>
           <option value="Pipe">Pipe</option>

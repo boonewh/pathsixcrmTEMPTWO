@@ -1,162 +1,130 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/authContext";
 import { apiFetch } from "@/lib/api";
-import { Link } from "react-router-dom";
-import EntityCard from "@/components/ui/EntityCard";
-import ProjectForm from "@/components/ui/ProjectForm";
-import { FormWrapper } from "@/components/ui/FormWrapper";
+import { useSearchParams } from "react-router-dom";
 
 interface AdminProject {
   id: number;
   project_name: string;
-  project_status: string;
+  type?: string;
+  project_status?: string;
   project_description?: string;
   project_start?: string;
   project_end?: string;
   project_worth?: number;
   client_name?: string;
   lead_name?: string;
-  client_id?: number;
-  lead_id?: number;
-  created_at?: string;
   assigned_to_email?: string;
+  created_at?: string;
+}
+
+interface User {
+  id: number;
+  email: string;
+  is_active: boolean;
 }
 
 export default function AdminProjectsPage() {
   const { token } = useAuth();
   const [projects, setProjects] = useState<AdminProject[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [form, setForm] = useState<Partial<AdminProject>>({});
-  const [clients, setClients] = useState<{ id: number; name: string }[]>([]);
-  const [leads, setLeads] = useState<{ id: number; name: string }[]>([]);
 
-  const resetForm = () => {
-    setForm({});
-    setEditingId(null);
-    };
+  const selectedEmail = searchParams.get("user") || "";
 
-    useEffect(() => {
-    const fetchAll = async () => {
-        try {
-        const [projectsRes, clientsRes, leadsRes] = await Promise.all([
-            apiFetch("/projects/all", { headers: { Authorization: `Bearer ${token}` } }),
-            apiFetch("/clients/all", { headers: { Authorization: `Bearer ${token}` } }),
-            apiFetch("/leads/all", { headers: { Authorization: `Bearer ${token}` } }),
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [projectRes, userRes] = await Promise.all([
+          apiFetch("/projects/all", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          apiFetch("/users/", {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
         ]);
 
-        const projectsData = await projectsRes.json();
-        const sorted = projectsData.sort((a: AdminProject, b: AdminProject) =>
-            new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime()
-        );
-        setProjects(sorted);
-        setClients(await clientsRes.json());
-        setLeads(await leadsRes.json());
-        } catch {
-        setError("Failed to load projects");
-        } finally {
+        const projectsData = await projectRes.json();
+        const usersData = await userRes.json();
+
+        setProjects(projectsData);
+        setUsers(usersData.filter((u: User) => u.is_active));
+      } catch {
+        setError("Failed to load projects or users");
+      } finally {
         setLoading(false);
-        }
+      }
     };
 
-    fetchAll();
-    }, [token]);
+    fetchData();
+  }, [token]);
 
-
-  const handleSave = async () => {
-    const res = await apiFetch(`/projects/${editingId}`, {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(form),
-    });
-    if (res.ok) {
-      const updated = await apiFetch("/projects/all", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await updated.json();
-      setProjects(data);
-      resetForm();
-    } else {
-      alert("Failed to save project");
+  const filteredProjects = projects.filter((project) => {
+    if (project.assigned_to_email) {
+      return project.assigned_to_email === selectedEmail;
     }
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm("Delete this project?")) return;
-    const res = await apiFetch(`/projects/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    if (res.ok) {
-      setProjects((prev) => prev.filter((p) => p.id !== id));
-    } else {
-      alert("Failed to delete project");
-    }
-  };
+    return false;
+  });
 
   return (
     <div className="p-6 space-y-10">
-      <h1 className="text-2xl font-bold text-blue-800">Admin: All Projects</h1>
+      <h1 className="text-2xl font-bold text-blue-800">Admin: Projects Overview</h1>
       {error && <p className="text-red-500">{error}</p>}
+
+      <div className="max-w-sm">
+        <label htmlFor="user-select" className="block font-medium mb-2">
+          Filter by user:
+        </label>
+        <select
+          id="user-select"
+          value={selectedEmail}
+          onChange={(e) => {
+            const email = e.target.value;
+            setSearchParams(email ? { user: email } : {});
+          }}
+          className="w-full border border-gray-300 rounded px-3 py-2"
+        >
+          <option value="">— Select a user —</option>
+          {users.map((u) => (
+            <option key={u.id} value={u.email}>
+              {u.email}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {loading ? (
         <div className="text-gray-500 text-center py-10">Loading...</div>
       ) : (
-        <div className="space-y-4 list-none">
-          {projects.map((p) => (
-            <EntityCard
-              key={p.id}
-              title={p.project_name}
-              editing={editingId === p.id}
-              onEdit={() => {
-                setEditingId(p.id);
-                setForm(p);
-              }}
-              onCancel={resetForm}
-              onSave={handleSave}
-              onDelete={() => handleDelete(p.id)}
-              editForm={
-                <FormWrapper>
-                  <ProjectForm form={form} setForm={setForm} clients={clients} leads={leads} />
-                </FormWrapper>
-              }
-              details={
+        selectedEmail && (
+          <div className="space-y-6">
+            {filteredProjects.map((project) => (
+              <div key={project.id} className="border rounded p-4 shadow-sm">
+                <h2 className="text-lg font-semibold mb-1">{project.project_name}</h2>
                 <ul className="text-sm text-gray-700 space-y-1">
-                  <li>Status: {p.project_status}</li>
-                  {p.project_description && <li>{p.project_description}</li>}
-                  {p.client_id && p.client_name && (
-                    <li>
-                      <Link to={`/clients/${p.client_id}`} className="text-blue-600 hover:underline">
-                        Account: {p.client_name}
-                      </Link>
-                    </li>
-                  )}
-                  {p.lead_id && p.lead_name && (
-                    <li>
-                      <Link to={`/leads/${p.lead_id}`} className="text-blue-600 hover:underline">
-                        Lead: {p.lead_name}
-                      </Link>
-                    </li>
-                  )}
-                  {!p.client_id && !p.lead_id && (
-                    <li className="text-yellow-600 text-xs font-medium">⚠️ Unassigned Project</li>
-                  )}
-                  {p.project_worth && <li>Worth: ${p.project_worth.toLocaleString()}</li>}
-                  {p.project_start && <li>Start: {new Date(p.project_start).toLocaleDateString()}</li>}
-                  {p.project_end && <li>End: {new Date(p.project_end).toLocaleDateString()}</li>}
-                  {p.assigned_to_email && <li>Assigned: {p.assigned_to_email}</li>}
+                  <li><strong>Status:</strong> {project.project_status}</li>
+                  {project.type && <li><strong>Type:</strong> {project.type}</li>}
+                  {project.project_description && <li><strong>Description:</strong> {project.project_description}</li>}
+                  {project.client_name && <li><strong>Client:</strong> {project.client_name}</li>}
+                  {project.lead_name && <li><strong>Lead:</strong> {project.lead_name}</li>}
+                  {project.project_worth !== undefined && <li><strong>Worth:</strong> ${project.project_worth.toLocaleString()}</li>}
+                  {project.project_start && <li><strong>Start:</strong> {new Date(project.project_start).toLocaleDateString()}</li>}
+                  {project.project_end && <li><strong>End:</strong> {new Date(project.project_end).toLocaleDateString()}</li>}
+                  {project.assigned_to_email && <li><strong>Assigned To:</strong> {project.assigned_to_email}</li>}
+                  {project.created_at && <li><strong>Created:</strong> {new Date(project.created_at).toLocaleDateString()}</li>}
                 </ul>
-              }
-            />
-          ))}
-          {projects.length === 0 && (
-            <div className="text-center text-gray-500">No projects found.</div>
-          )}
-        </div>
+              </div>
+            ))}
+
+            {filteredProjects.length === 0 && (
+              <div className="text-gray-500 text-center py-6">
+                No projects found for this user.
+              </div>
+            )}
+          </div>
+        )
       )}
     </div>
   );

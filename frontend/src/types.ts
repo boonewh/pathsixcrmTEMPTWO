@@ -88,6 +88,7 @@ export interface Lead {
 export interface Project {
   id: number;
   project_name: string;
+  type?: string;
   project_description?: string;
   project_status?: string;
   project_start?: string;
