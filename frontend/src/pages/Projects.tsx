@@ -21,34 +21,38 @@ export default function Projects() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true);
-      try {
-        const [projRes, clientRes, leadRes] = await Promise.all([
-          apiFetch("/projects/", { headers: { Authorization: `Bearer ${token}` } }),
-          apiFetch("/clients/", { headers: { Authorization: `Bearer ${token}` } }),
-          apiFetch("/leads/", { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
+useEffect(() => {
+  const fetchAll = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const [projRes, clientRes, leadRes] = await Promise.all([
+        apiFetch("/projects/", { headers: { Authorization: `Bearer ${token}` } }),
+        apiFetch("/clients/", { headers: { Authorization: `Bearer ${token}` } }),
+        apiFetch("/leads/", { headers: { Authorization: `Bearer ${token}` } }),
+      ]);
 
-        const projects = await projRes.json();
-        const clients = await clientRes.json();
-        const leads = await leadRes.json();
+      const projects = await projRes.json();
+      const clients = await clientRes.json();
+      const leads = await leadRes.json();
 
-        setProjects(projects.sort((a: Project, b: Project) =>
-          new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime()
-        ));
-        setClients(clients.map((c: any) => ({ id: c.id, name: c.name })));
-        setLeads(leads.map((l: any) => ({ id: l.id, name: l.name })));
-      } catch (err) {
-        setError("Failed to load data");
-      } finally {
-        setLoading(false);
-      }
-    };
+      // Extract leads array from paginated response
+      const leadsArray = leads.leads || leads;
 
-    fetchAll();
-  }, [token]);
+      setProjects(projects.sort((a: Project, b: Project) =>
+        new Date(b.created_at || "").getTime() - new Date(a.created_at || "").getTime()
+      ));
+      setClients(clients.map((c: any) => ({ id: c.id, name: c.name })));
+      setLeads(leadsArray.map((l: any) => ({ id: l.id, name: l.name })));
+    } catch (err: any) {
+      setError("Failed to load data");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  fetchAll();
+}, [token]);
 
   const resetForm = () => {
     setForm({});
