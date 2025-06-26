@@ -20,6 +20,8 @@ import AdminLeadsPage from "./pages/AdminLeadsPage";
 import AdminClientsPage from "./pages/AdminClientsPage";
 import AdminInteractionsPage from "./pages/AdminInteractionsPage";
 import AdminProjectsPage from "./pages/AdminProjectsPage";
+import AdminImportPage from "./pages/AdminImportPage";
+
 function App() {
   return (
     <Routes>
@@ -42,13 +44,12 @@ function App() {
         <Route path="/clients/:id" element={<ClientDetailPage />} />
         <Route path="/leads/:id" element={<LeadDetailPage />} />
         <Route path="/calendar" element={<CalendarPage />} />
-        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
-        <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/admin/leads" element={<AdminLeadsPage />} />
         <Route path="/admin/clients" element={<AdminClientsPage />} />
         <Route path="/admin/interactions" element={<AdminInteractionsPage />} />
         <Route path="/admin/projects" element={<AdminProjectsPage />} />
+        <Route path="/admin/import" element={<AdminImportPage />} />
       </Route>
       {/* Catch all */}
       <Route path="*" element={<NotFound />} />

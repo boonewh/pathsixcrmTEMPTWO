@@ -9,6 +9,9 @@ import { apiFetch } from "@/lib/api";
 
 export default function Leads() {
   const [leads, setLeads] = useState<Lead[]>([]);
+  const [page, setPage] = useState(1);
+  const [perPage, setPerPage] = useState(10);
+  const [total, setTotal] = useState(0);
   const [currentlyEditingId, setCurrentlyEditingId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -35,29 +38,31 @@ export default function Leads() {
   const [availableUsers, setAvailableUsers] = useState<{ id: number; email: string }[]>([]);
 
 
-useEffect(() => {
-  const fetchLeads = async () => {
-    try {
-      const res = await apiFetch("/leads/", {
+  useEffect(() => {
+    const fetchLeads = async () => {
+      try {
+        const res = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setLeads(data.leads);
+        setTotal(data.total);
+      } catch (err) {
+        setError("Failed to load leads");
+      }
+    };
+
+    fetchLeads();
+
+    if (userHasRole(user, "admin")) {
+      fetch("/api/users/", {
         headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      setLeads(data);
-    } catch (err) {
-      setError("Failed to load leads");
+      })
+        .then((res) => res.json())
+        .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)));
     }
-  };
+  }, [token, page, perPage]);
 
-  fetchLeads();
-
-  if (userHasRole(user, "admin")) {
-    apiFetch("/users/", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)));
-  }
-}, [token]);
 
   const handleEdit = (lead: Lead) => {
     setCurrentlyEditingId(lead.id);
@@ -100,9 +105,10 @@ useEffect(() => {
 
     if (!res.ok) return alert("Failed to save lead");
 
-    const updatedRes = await apiFetch("/leads/", {
+    const updatedRes = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
+
     const fullData = await updatedRes.json();
     setLeads(fullData);
 
@@ -148,6 +154,49 @@ useEffect(() => {
       >
         + New Lead
       </button>
+
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <label htmlFor="perPage" className="text-sm text-gray-700 mr-2">
+            Leads per page:
+          </label>
+          <select
+            id="perPage"
+            value={perPage}
+            onChange={(e) => {
+              setPerPage(Number(e.target.value));
+              setPage(1); // reset to first page when perPage changes
+            }}
+            className="border rounded px-2 py-1 text-sm"
+          >
+            {[5, 10, 20, 50, 100].map((n) => (
+              <option key={n} value={n}>
+                {n}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+            disabled={page === 1}
+            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+          >
+            Previous
+          </button>
+          <span className="text-sm text-gray-600">
+            Page {page} of {Math.ceil(total / perPage)}
+          </span>
+          <button
+            onClick={() => setPage((prev) => (prev * perPage < total ? prev + 1 : prev))}
+            disabled={page * perPage >= total}
+            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+          >
+            Next
+          </button>
+        </div>
+      </div>
 
       <ul className="space-y-4">
         {creating && (
@@ -275,6 +324,27 @@ useEffect(() => {
           />
         ))}
       </ul>
+
+      <div className="mt-4 flex justify-between items-center">
+        <button
+          onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
+          disabled={page === 1}
+          className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+        >
+          Previous
+        </button>
+        <span className="text-sm text-gray-600">
+          Page {page} of {Math.ceil(total / perPage)}
+        </span>
+        <button
+          onClick={() => setPage((prev) => (prev * perPage < total ? prev + 1 : prev))}
+          disabled={page * perPage >= total}
+          className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+        >
+          Next
+        </button>
+      </div>
+
       
       {showAssignModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">

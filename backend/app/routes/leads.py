@@ -17,7 +17,10 @@ async def list_leads():
     user = request.user
     session = SessionLocal()
     try:
-        leads = session.query(Lead).options(
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+
+        query = session.query(Lead).options(
             joinedload(Lead.assigned_user),
             joinedload(Lead.created_by_user)
         ).filter(
@@ -30,10 +33,13 @@ async def list_leads():
                     Lead.created_by == user.id
                 )
             )
-        ).all()
+        )
 
-        response = jsonify([
-            {
+        total = query.count()
+        leads = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response = jsonify({
+            "leads": [{
                 "id": l.id,
                 "name": l.name,
                 "contact_person": l.contact_person,
@@ -56,10 +62,12 @@ async def list_leads():
                     else None
                 ),
                 "lead_status": l.lead_status,
-                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
-                "type": l.type
-            } for l in leads
-        ])
+                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None
+            } for l in leads],
+            "total": total,
+            "page": page,
+            "per_page": per_page
+        })
         response.headers["Cache-Control"] = "no-store"
         return response
     finally:
