@@ -8,10 +8,11 @@ from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
 from app.utils.import_utils import map_lead_data
 
-imports_bp = Blueprint("imports", __name__, url_prefix="/api/leads")
+# Change to a separate blueprint to avoid conflicts
+imports_bp = Blueprint("imports", __name__, url_prefix="/api/import")
 
 
-@imports_bp.route("/import", methods=["POST"])
+@imports_bp.route("/leads", methods=["POST"])
 @requires_auth(roles=["admin"])
 async def import_leads():
     """
@@ -66,7 +67,7 @@ async def import_leads():
         df.columns = df.columns.str.strip()
         
         # Validate required columns
-        required_columns = ['PLANT_NAME', 'ADDRESS', 'CITY', 'STATE']
+        required_columns = ['PLANT_NAME']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             return jsonify({"error": f"Missing required columns: {missing_columns}"}), 400
@@ -146,7 +147,7 @@ async def import_leads():
         session.close()
 
 
-@imports_bp.route("/import/template", methods=["GET"])
+@imports_bp.route("/leads/template", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def download_import_template():
     """
@@ -179,3 +180,11 @@ async def download_import_template():
         mimetype='text/csv',
         headers={"Content-Disposition": "attachment; filename=lead_import_template.csv"}
     )
+
+@imports_bp.route("/test", methods=["GET"])
+@requires_auth(roles=["admin"])
+async def test_import_route():
+    """
+    Simple test route to verify the import blueprint is working
+    """
+    return jsonify({"message": "Import route is working!", "user": request.user.email}), 200

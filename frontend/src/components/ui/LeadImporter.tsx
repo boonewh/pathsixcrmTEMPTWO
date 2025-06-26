@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { Upload, Download, Users, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { useAuth } from '@/authContext';
 import { apiFetch } from '@/lib/api';
 
@@ -79,7 +79,8 @@ export default function LeadImporter() {
       formData.append('file', file);
       formData.append('assigned_user_email', selectedUser);
 
-      const res = await fetch('/api/leads/import', {
+      // Updated route to avoid conflicts
+      const res = await fetch('/api/import/leads', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -87,12 +88,19 @@ export default function LeadImporter() {
         body: formData,
       });
 
-      const data = await res.json();
-
       if (!res.ok) {
-        throw new Error(data.error || 'Import failed');
+        // Handle non-JSON error responses
+        const contentType = res.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const data = await res.json();
+          throw new Error(data.error || 'Import failed');
+        } else {
+          // Server returned HTML error page
+          throw new Error(`Server error: ${res.status} ${res.statusText}`);
+        }
       }
 
+      const data = await res.json();
       setImportResult(data);
       setFile(null);
       setSelectedUser('');
@@ -102,6 +110,7 @@ export default function LeadImporter() {
       if (fileInput) fileInput.value = '';
 
     } catch (err: any) {
+      console.error('Import error:', err);
       setError(err.message || 'Import failed');
     } finally {
       setIsUploading(false);
@@ -110,7 +119,8 @@ export default function LeadImporter() {
 
   const downloadTemplate = async () => {
     try {
-      const res = await fetch('/api/leads/import/template', {
+      // Updated route to match backend
+      const res = await fetch('/api/import/leads/template', {
         headers: { Authorization: `Bearer ${token}` },
       });
       
