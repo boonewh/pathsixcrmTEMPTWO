@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Upload, Download, Users, AlertCircle, CheckCircle, X } from 'lucide-react';
+import { Upload, Download, AlertCircle, CheckCircle, X } from 'lucide-react';
 import { useAuth } from '@/authContext';
 import { apiFetch } from '@/lib/api';
 
@@ -80,7 +80,7 @@ export default function LeadImporter() {
       formData.append('assigned_user_email', selectedUser);
 
       // Updated route to avoid conflicts
-      const res = await fetch('/api/import/leads', {
+      const res = await fetch('https://pathsix-backend.fly.dev/api/import/leads', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -120,7 +120,7 @@ export default function LeadImporter() {
   const downloadTemplate = async () => {
     try {
       // Updated route to match backend
-      const res = await fetch('/api/import/leads/template', {
+      const res = await fetch('https://pathsix-backend.fly.dev/api/import/leads/template', {
         headers: { Authorization: `Bearer ${token}` },
       });
       
