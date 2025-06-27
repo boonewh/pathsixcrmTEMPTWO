@@ -93,27 +93,28 @@ export default function Leads() {
     });
   };
 
-  const handleSave = async () => {
-    const method = creating ? "POST" : "PUT";
-    const url = creating ? "/leads/" : `/leads/${currentlyEditingId}`;
+const handleSave = async () => {
+  const method = creating ? "POST" : "PUT";
+  const url = creating ? "/leads/" : `/leads/${currentlyEditingId}`;
 
-    const res = await apiFetch(url, {
-      method,
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify(form),
-    });
+  const res = await apiFetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${token}` },
+    body: JSON.stringify(form),
+  });
 
-    if (!res.ok) return alert("Failed to save lead");
+  if (!res.ok) return alert("Failed to save lead");
 
-    const updatedRes = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
+  const updatedRes = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
 
-    const fullData = await updatedRes.json();
-    setLeads(fullData);
+  const fullData = await updatedRes.json();
+  setLeads(fullData.leads);        // ✅ just the array
+  setTotal(fullData.total);        // ✅ keep pagination accurate
 
-    handleCancel();
-  };
+  handleCancel();
+};
 
   const handleDelete = async (id: number) => {
     const res = await apiFetch(`/leads/${id}`, {
@@ -391,11 +392,13 @@ export default function Leads() {
                     setShowAssignModal(false);
                     setSelectedUserId(null);
                     setSelectedLeadId(null);
-                    const updatedRes = await apiFetch("/leads/", {
+                    const updatedRes = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
                       headers: { Authorization: `Bearer ${token}` },
                     });
                     const fullData = await updatedRes.json();
-                    setLeads(fullData);
+                    setLeads(fullData.leads);  // ✅ fix
+                    setTotal(fullData.total);  // ✅ keep it accurate
+
                   } else {
                     alert("Failed to assign lead.");
                   }
