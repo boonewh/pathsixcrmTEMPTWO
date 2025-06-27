@@ -62,7 +62,8 @@ async def list_leads():
                     else None
                 ),
                 "lead_status": l.lead_status,
-                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None
+                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
+                "type": l.type  
             } for l in leads],
             "total": total,
             "page": page,
@@ -79,9 +80,11 @@ async def list_leads():
 async def create_lead():
     user = request.user
     data = await request.get_json()
+    
     session = SessionLocal()
     try:
         lead_type = data.get("type", TYPE_OPTIONS[0])
+        
         if lead_type not in TYPE_OPTIONS:
             lead_type = TYPE_OPTIONS[0]
 
@@ -104,6 +107,7 @@ async def create_lead():
             type=lead_type,
             created_at=datetime.utcnow()
         )
+        
         session.add(lead)
         session.commit()
         session.refresh(lead)
@@ -181,6 +185,7 @@ async def get_lead(lead_id):
 async def update_lead(lead_id):
     user = request.user
     data = await request.get_json()
+    
     session = SessionLocal()
     try:
         lead = session.query(Lead).filter(
@@ -258,11 +263,6 @@ async def assign_lead(lead_id):
     data = await request.get_json()
     assigned_to = data.get("assigned_to")
 
-    # DEBUG: Add logging
-    print(f"DEBUG: Assigning lead {lead_id} to user {assigned_to}")
-    print(f"DEBUG: Data received: {data}")
-    print(f"DEBUG: Current user: {user.email} (ID: {user.id})")
-
     session = SessionLocal()
     try:
         lead = session.query(Lead).filter(
@@ -272,11 +272,7 @@ async def assign_lead(lead_id):
         ).first()
 
         if not lead:
-            print(f"DEBUG: Lead {lead_id} not found")
             return jsonify({"error": "Lead not found"}), 404
-
-        print(f"DEBUG: Found lead: {lead.name}")
-        print(f"DEBUG: Current assigned_to: {lead.assigned_to}")
 
         # Validate that assigned_to is a valid user
         if assigned_to:
@@ -287,16 +283,11 @@ async def assign_lead(lead_id):
             ).first()
             
             if not assigned_user:
-                print(f"DEBUG: User {assigned_to} not found or not active")
                 return jsonify({"error": f"User {assigned_to} not found or not active"}), 400
-            
-            print(f"DEBUG: Assigning to user: {assigned_user.email}")
 
         lead.assigned_to = assigned_to
         lead.updated_by = user.id
         lead.updated_at = datetime.utcnow()
-
-        print(f"DEBUG: About to commit changes")
 
         # Send email to assigned user (before commit in case it fails)
         if assigned_to:
@@ -309,22 +300,18 @@ async def assign_lead(lead_id):
                         entity_name=lead.name,
                         assigned_by=user.email
                     )
-                    print(f"DEBUG: Email notification sent to {assigned_user.email}")
                 except Exception as email_error:
                     print(f"DEBUG: Email notification failed: {email_error}")
                     # Don't fail the assignment if email fails
 
         try:
             session.commit()
-            print(f"DEBUG: Successfully committed assignment")
             return jsonify({"message": "Lead assigned successfully"})
         except Exception as e:
-            print(f"DEBUG: Commit failed: {e}")
             session.rollback()
             return jsonify({"error": f"Database error: {str(e)}"}), 500
 
     except Exception as e:
-        print(f"DEBUG: Unexpected error: {e}")
         return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
     finally:
         session.close()

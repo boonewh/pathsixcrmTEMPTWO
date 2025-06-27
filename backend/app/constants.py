@@ -1,7 +1,7 @@
 # Types for Leads & Clients
 TYPE_OPTIONS = [
     "None",
-    'Oil & Gas',
+    "Oil & Gas",
     "Secondary Containment",
     "Tanks",
     "Pipe",
