@@ -6,12 +6,23 @@ import { Link } from "react-router-dom";
 import CompanyForm from "@/components/ui/CompanyForm";
 import { Lead } from "@/types";
 import { apiFetch } from "@/lib/api";
+import PaginationControls from "@/components/ui/PaginationControls";
+import { usePagination } from "@/hooks/usePreferences";
 
 export default function Leads() {
   const [leads, setLeads] = useState<Lead[]>([]);
-  const [page, setPage] = useState(1);
-  const [perPage, setPerPage] = useState(10);
   const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  // Use pagination hook
+  const {
+    perPage,
+    sortOrder,
+    currentPage,
+    setCurrentPage,
+    updatePerPage,
+    updateSortOrder,
+  } = usePagination('leads');
   const [currentlyEditingId, setCurrentlyEditingId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState("");
@@ -40,15 +51,19 @@ export default function Leads() {
 
   useEffect(() => {
     const fetchLeads = async () => {
+      setLoading(true);
       try {
-        const res = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
+        const res = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         setLeads(data.leads);
         setTotal(data.total);
+        setError(""); // Reset error on successful fetch
       } catch (err) {
         setError("Failed to load leads");
+      } finally {
+        setLoading(false);
       }
     };
 
@@ -61,7 +76,7 @@ export default function Leads() {
         .then((res) => res.json())
         .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)));
     }
-  }, [token, page, perPage]);
+  }, [token, currentPage, perPage, sortOrder]);
 
 
   const handleEdit = (lead: Lead) => {
@@ -105,7 +120,7 @@ const handleSave = async () => {
 
   if (!res.ok) return alert("Failed to save lead");
 
-  const updatedRes = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
+  const updatedRes = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -116,14 +131,26 @@ const handleSave = async () => {
   handleCancel();
 };
 
-  const handleDelete = async (id: number) => {
-    const res = await apiFetch(`/leads/${id}`, {
-      method: "DELETE",
+const handleDelete = async (id: number) => {
+  if (!confirm("Are you sure you want to delete this lead?")) return;
+  
+  const res = await apiFetch(`/leads/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  
+  if (res.ok) {
+    // Refresh the current page instead of just filtering
+    const updatedRes = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    if (res.ok) setLeads((prev) => prev.filter((l) => l.id !== id));
-    else alert("Failed to delete lead");
-  };
+    const data = await updatedRes.json();
+    setLeads(data.leads);
+    setTotal(data.total);
+  } else {
+    alert("Failed to delete lead");
+  }
+};
 
   return (
     <div className="p-6">
@@ -156,50 +183,24 @@ const handleSave = async () => {
         + New Lead
       </button>
 
-      <div className="flex justify-between items-center mb-4">
-        <div>
-          <label htmlFor="perPage" className="text-sm text-gray-700 mr-2">
-            Leads per page:
-          </label>
-          <select
-            id="perPage"
-            value={perPage}
-            onChange={(e) => {
-              setPerPage(Number(e.target.value));
-              setPage(1); // reset to first page when perPage changes
-            }}
-            className="border rounded px-2 py-1 text-sm"
-          >
-            {[5, 10, 20, 50, 100].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
+      {/* Pagination Controls at top */}
+      <PaginationControls
+        currentPage={currentPage}
+        perPage={perPage}
+        total={total}
+        sortOrder={sortOrder}
+        onPageChange={setCurrentPage}
+        onPerPageChange={updatePerPage}
+        onSortOrderChange={updateSortOrder}
+        entityName="leads"
+        className="border-b pb-4"
+      />
 
-        <div className="flex gap-2 items-center">
-          <button
-            onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-            disabled={page === 1}
-            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
-          >
-            Previous
-          </button>
-          <span className="text-sm text-gray-600">
-            Page {page} of {Math.ceil(total / perPage)}
-          </span>
-          <button
-            onClick={() => setPage((prev) => (prev * perPage < total ? prev + 1 : prev))}
-            disabled={page * perPage >= total}
-            className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
-          >
-            Next
-          </button>
-        </div>
-      </div>
-
-      <ul className="space-y-4">
+      {/* Content */}
+      {loading ? (
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      ) : (
+        <div className="space-y-4">
         {creating && (
           <EntityCard
             title="New Lead"
@@ -324,27 +325,21 @@ const handleSave = async () => {
             }
           />
         ))}
-      </ul>
-
-      <div className="mt-4 flex justify-between items-center">
-        <button
-          onClick={() => setPage((prev) => Math.max(prev - 1, 1))}
-          disabled={page === 1}
-          className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
-        >
-          Previous
-        </button>
-        <span className="text-sm text-gray-600">
-          Page {page} of {Math.ceil(total / perPage)}
-        </span>
-        <button
-          onClick={() => setPage((prev) => (prev * perPage < total ? prev + 1 : prev))}
-          disabled={page * perPage >= total}
-          className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
-        >
-          Next
-        </button>
       </div>
+      )}
+
+      {/* Pagination Controls at bottom */}
+      <PaginationControls
+        currentPage={currentPage}
+        perPage={perPage}
+        total={total}
+        sortOrder={sortOrder}
+        onPageChange={setCurrentPage}
+        onPerPageChange={updatePerPage}
+        onSortOrderChange={updateSortOrder}
+        entityName="leads"
+        className="border-t pt-4"
+      />
 
       
       {showAssignModal && (
@@ -392,7 +387,7 @@ const handleSave = async () => {
                     setShowAssignModal(false);
                     setSelectedUserId(null);
                     setSelectedLeadId(null);
-                    const updatedRes = await apiFetch(`/leads/?page=${page}&per_page=${perPage}`, {
+                    const updatedRes = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
                       headers: { Authorization: `Bearer ${token}` },
                     });
                     const fullData = await updatedRes.json();

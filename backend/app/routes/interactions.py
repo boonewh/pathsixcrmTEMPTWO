@@ -1,10 +1,10 @@
 from quart import Blueprint, request, jsonify, Response
 from datetime import datetime
 from sqlalchemy.orm import joinedload
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func
 from icalendar import Calendar, Event
 
-from app.models import Interaction, Client, Lead, FollowUpStatus
+from app.models import Interaction, Client, Lead, FollowUpStatus, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 
@@ -19,9 +19,17 @@ async def list_interactions():
     try:
         client_id = request.args.get("client_id")
         lead_id = request.args.get("lead_id")
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 10))
+        sort_order = request.args.get("sort", "newest")
 
         if client_id and lead_id:
             return jsonify({"error": "Cannot filter by both client_id and lead_id"}), 400
+
+        # Validate sort order
+        valid_sorts = ["newest", "oldest", "pending", "completed"]
+        if sort_order not in valid_sorts:
+            sort_order = "newest"
 
         query = session.query(Interaction).options(
             joinedload(Interaction.client),
@@ -45,7 +53,6 @@ async def list_interactions():
             )
         )
 
-
         if client_id:
             query = query.filter(
                 Interaction.client_id == int(client_id),
@@ -57,30 +64,66 @@ async def list_interactions():
                 Interaction.client_id == None
             )
 
-        interactions = query.order_by(Interaction.contact_date.desc()).all()
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Interaction.contact_date.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Interaction.contact_date.asc())
+        elif sort_order == "pending":
+            # Show pending follow-ups first (has follow_up date and not completed)
+            query = query.order_by(
+                # First: interactions with pending follow-ups (has follow_up and not completed)
+                (and_(
+                    Interaction.follow_up != None,
+                    Interaction.followup_status != FollowUpStatus.completed
+                )).desc(),
+                # Then by follow-up date if they have one
+                Interaction.follow_up.asc(),
+                # Finally by contact date
+                Interaction.contact_date.desc()
+            )
+        elif sort_order == "completed":
+            # Show completed follow-ups first
+            query = query.order_by(
+                (Interaction.followup_status == FollowUpStatus.completed).desc(),
+                Interaction.contact_date.desc()
+            )
 
-        response = jsonify([
-            {
-                "id": i.id,
-                "contact_date": i.contact_date.isoformat(),
-                "follow_up": i.follow_up.isoformat() if i.follow_up else None,
-                "summary": i.summary,
-                "outcome": i.outcome,
-                "notes": i.notes,
-                "client_id": i.client_id,
-                "lead_id": i.lead_id,
-                "client_name": i.client.name if i.client else None,
-                "lead_name": i.lead.name if i.lead else None,
-                "contact_person": i.client.contact_person if i.client else i.lead.contact_person if i.lead else None,
-                "email": i.client.email if i.client else i.lead.email if i.lead else None,
-                "phone": i.client.phone if i.client else i.lead.phone if i.lead else None,
-                "phone_label": i.client.phone_label if i.client else i.lead.phone_label if i.lead else None,
-                "secondary_phone": i.client.secondary_phone if i.client else i.lead.secondary_phone if i.lead else None,
-                "secondary_phone_label": i.client.secondary_phone_label if i.client else i.lead.secondary_phone_label if i.lead else None,
-                "followup_status": i.followup_status.value if i.followup_status else None,
-                "profile_link": f"/clients/{i.client_id}" if i.client_id else f"/leads/{i.lead_id}" if i.lead_id else None
-            } for i in interactions
-        ])
+        total = query.count()
+
+        # Apply pagination
+        interactions = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_data = {
+            "interactions": [
+                {
+                    "id": i.id,
+                    "contact_date": i.contact_date.isoformat(),
+                    "follow_up": i.follow_up.isoformat() if i.follow_up else None,
+                    "summary": i.summary,
+                    "outcome": i.outcome,
+                    "notes": i.notes,
+                    "client_id": i.client_id,
+                    "lead_id": i.lead_id,
+                    "client_name": i.client.name if i.client else None,
+                    "lead_name": i.lead.name if i.lead else None,
+                    "contact_person": i.client.contact_person if i.client else i.lead.contact_person if i.lead else None,
+                    "email": i.client.email if i.client else i.lead.email if i.lead else None,
+                    "phone": i.client.phone if i.client else i.lead.phone if i.lead else None,
+                    "phone_label": i.client.phone_label if i.client else i.lead.phone_label if i.lead else None,
+                    "secondary_phone": i.client.secondary_phone if i.client else i.lead.secondary_phone if i.lead else None,
+                    "secondary_phone_label": i.client.secondary_phone_label if i.client else i.lead.secondary_phone_label if i.lead else None,
+                    "followup_status": i.followup_status.value if i.followup_status else None,
+                    "profile_link": f"/clients/{i.client_id}" if i.client_id else f"/leads/{i.lead_id}" if i.lead_id else None
+                } for i in interactions
+            ],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order
+        }
+
+        response = jsonify(response_data)
         response.headers["Cache-Control"] = "no-store"
         return response
     finally:
@@ -265,57 +308,119 @@ async def complete_interaction(interaction_id):
     finally:
         session.close()
 
+
+# Replace the existing /all endpoint in interactions.py with this paginated version
+
 @interactions_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_interactions_admin():
     user = request.user
     session = SessionLocal()
     try:
-        interactions = session.query(Interaction).options(
+        # Get pagination parameters
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        user_email = request.args.get("user_email")  # Filter by specific user
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = session.query(Interaction).options(
             joinedload(Interaction.client).joinedload(Client.assigned_user),
             joinedload(Interaction.client).joinedload(Client.created_by_user),
             joinedload(Interaction.lead).joinedload(Lead.assigned_user),
             joinedload(Interaction.lead).joinedload(Lead.created_by_user)
         ).filter(
             Interaction.tenant_id == user.tenant_id
-        ).order_by(Interaction.contact_date.desc()).all()
+        )
 
-        return jsonify([{
-            "id": i.id,
-            "contact_date": i.contact_date.isoformat(),
-            "follow_up": i.follow_up.isoformat() if i.follow_up else None,
-            "summary": i.summary,
-            "outcome": i.outcome,
-            "notes": i.notes,
-            "client_id": i.client_id,
-            "lead_id": i.lead_id,
-            "client_name": i.client.name if i.client else None,
-            "lead_name": i.lead.name if i.lead else None,
-            "contact_person": (
-                i.contact_person.strip() if i.contact_person and i.contact_person.strip()
-                else i.client.contact_person if i.client
-                else i.lead.contact_person if i.lead
-                else None
-            ),
-            "email": (
-                i.email or
-                i.client.email if i.client else
-                i.lead.email if i.lead else None
-            ),
-            "phone": (
-                i.phone or
-                i.client.phone if i.client else
-                i.lead.phone if i.lead else None
-            ),
-            "followup_status": i.followup_status.value if i.followup_status else None,
-            "profile_link": f"/clients/{i.client_id}" if i.client_id else f"/leads/{i.lead_id}" if i.lead_id else None,
-            "assigned_to_name": (
-                i.client.assigned_user.email if i.client and i.client.assigned_user
-                else i.client.created_by_user.email if i.client and i.client.created_by_user
-                else i.lead.assigned_user.email if i.lead and i.lead.assigned_user
-                else i.lead.created_by_user.email if i.lead and i.lead.created_by_user
-                else None
+        # Filter by user if specified
+        if user_email:
+            query = query.filter(
+                or_(
+                    # Client interactions
+                    and_(
+                        Interaction.client_id != None,
+                        or_(
+                            Interaction.client.has(Client.assigned_user.has(User.email == user_email)),
+                            Interaction.client.has(Client.created_by_user.has(User.email == user_email))
+                        )
+                    ),
+                    # Lead interactions
+                    and_(
+                        Interaction.lead_id != None,
+                        or_(
+                            Interaction.lead.has(Lead.assigned_user.has(User.email == user_email)),
+                            Interaction.lead.has(Lead.created_by_user.has(User.email == user_email))
+                        )
+                    )
+                )
             )
-        } for i in interactions])
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Interaction.contact_date.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Interaction.contact_date.asc())
+        elif sort_order == "alphabetical":
+            # Sort by client/lead name alphabetically
+            query = query.order_by(
+                func.coalesce(Client.name, Lead.name).asc()
+            ).outerjoin(Client, Interaction.client_id == Client.id)\
+             .outerjoin(Lead, Interaction.lead_id == Lead.id)
+
+        total = query.count()
+        interactions = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_data = {
+            "interactions": [{
+                "id": i.id,
+                "contact_date": i.contact_date.isoformat(),
+                "follow_up": i.follow_up.isoformat() if i.follow_up else None,
+                "summary": i.summary,
+                "outcome": i.outcome,
+                "notes": i.notes,
+                "client_id": i.client_id,
+                "lead_id": i.lead_id,
+                "client_name": i.client.name if i.client else None,
+                "lead_name": i.lead.name if i.lead else None,
+                "contact_person": (
+                    i.contact_person.strip() if i.contact_person and i.contact_person.strip()
+                    else i.client.contact_person if i.client
+                    else i.lead.contact_person if i.lead
+                    else None
+                ),
+                "email": (
+                    i.email or
+                    i.client.email if i.client else
+                    i.lead.email if i.lead else None
+                ),
+                "phone": (
+                    i.phone or
+                    i.client.phone if i.client else
+                    i.lead.phone if i.lead else None
+                ),
+                "followup_status": i.followup_status.value if i.followup_status else None,
+                "profile_link": f"/clients/{i.client_id}" if i.client_id else f"/leads/{i.lead_id}" if i.lead_id else None,
+                "assigned_to_name": (
+                    i.client.assigned_user.email if i.client and i.client.assigned_user
+                    else i.client.created_by_user.email if i.client and i.client.created_by_user
+                    else i.lead.assigned_user.email if i.lead and i.lead.assigned_user
+                    else i.lead.created_by_user.email if i.lead and i.lead.created_by_user
+                    else None
+                )
+            } for i in interactions],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order,
+            "user_email": user_email
+        }
+
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     finally:
         session.close()

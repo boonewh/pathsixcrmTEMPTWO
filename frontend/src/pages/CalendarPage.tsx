@@ -40,11 +40,12 @@ export default function CalendarPage() {
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const res = await apiFetch("/interactions/", {
+      const res = await apiFetch("/interactions/?per_page=1000", { // Get all interactions for calendar
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const data: Interaction[] = await res.json();
+      const response = await res.json();
+      const data: Interaction[] = response.interactions || response; // 👈 Handle paginated response
       const filtered = data.filter((i) => {
         if (!i.follow_up) return false;
         if (filterType === "client") return !!i.client_id;

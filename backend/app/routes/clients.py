@@ -16,7 +16,18 @@ async def list_clients():
     user = request.user
     session = SessionLocal()
     try:
-        clients = session.query(Client).filter(
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = session.query(Client).options(
+            joinedload(Client.assigned_user),
+            joinedload(Client.created_by_user)
+        ).filter(
             Client.tenant_id == user.tenant_id,
             Client.deleted_at == None,
             or_(
@@ -26,10 +37,21 @@ async def list_clients():
                     Client.created_by == user.id
                 )
             )
-        ).all()
+        )
 
-        return jsonify([
-            {
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Client.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Client.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Client.name.asc())
+
+        total = query.count()
+        clients = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response = jsonify({
+            "clients": [{
                 "id": c.id,
                 "name": c.name,
                 "contact_person": c.contact_person,
@@ -45,9 +67,21 @@ async def list_clients():
                 "zip": c.zip,
                 "notes": c.notes,
                 "type": c.type,
-                "created_at": c.created_at.isoformat() + "Z"
-            } for c in clients
-        ])
+                "created_at": c.created_at.isoformat() + "Z",
+                "assigned_to": c.assigned_to,
+                "assigned_to_name": (
+                    c.assigned_user.email if c.assigned_user
+                    else c.created_by_user.email if c.created_by_user
+                    else None
+                ),
+            } for c in clients],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response
     finally:
         session.close()
 
@@ -262,42 +296,83 @@ async def assign_client(client_id):
         session.close()
 
 
-
 @clients_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_clients():
     user = request.user
     session = SessionLocal()
     try:
-        clients = session.query(Client).options(
+        # Get pagination parameters
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        user_email = request.args.get("user_email")  # Filter by specific user
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = session.query(Client).options(
             joinedload(Client.assigned_user),
             joinedload(Client.created_by_user)
         ).filter(
             Client.tenant_id == user.tenant_id,
             Client.deleted_at == None
-        ).all()
+        )
 
-        return jsonify([
-            {
-                "id": c.id,
-                "name": c.name,
-                "email": c.email,
-                "phone": c.phone,
-                "phone_label": c.phone_label,
-                "secondary_phone": c.secondary_phone,
-                "secondary_phone_label": c.secondary_phone_label,
-                "contact_person": c.contact_person,
-                "contact_title": c.contact_title,
-                "type": c.type,
-                "created_by": c.created_by,
-                "created_by_name": c.created_by_user.email if c.created_by_user else None,
-                "assigned_to_name": (
-                    c.assigned_user.email if c.assigned_user
-                    else c.created_by_user.email if c.created_by_user
-                    else None
+        # Filter by user if specified
+        if user_email:
+            query = query.filter(
+                or_(
+                    Client.assigned_user.has(User.email == user_email),
+                    Client.created_by_user.has(User.email == user_email)
                 )
-            } for c in clients
-        ])
+            )
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Client.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Client.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Client.name.asc())
+
+        total = query.count()
+        clients = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_data = {
+            "clients": [
+                {
+                    "id": c.id,
+                    "name": c.name,
+                    "email": c.email,
+                    "phone": c.phone,
+                    "phone_label": c.phone_label,
+                    "secondary_phone": c.secondary_phone,
+                    "secondary_phone_label": c.secondary_phone_label,
+                    "contact_person": c.contact_person,
+                    "contact_title": c.contact_title,
+                    "type": c.type,
+                    "created_by": c.created_by,
+                    "created_by_name": c.created_by_user.email if c.created_by_user else None,
+                    "assigned_to_name": (
+                        c.assigned_user.email if c.assigned_user
+                        else c.created_by_user.email if c.created_by_user
+                        else None
+                    ),
+                    "created_at": c.created_at.isoformat() + "Z" if c.created_at else None,
+                } for c in clients
+            ],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order,
+            "user_email": user_email
+        }
+
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     finally:
         session.close()
 

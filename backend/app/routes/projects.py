@@ -1,11 +1,11 @@
 from quart import Blueprint, request, jsonify
 from datetime import datetime
-from app.models import Project, ActivityLog, ActivityType, Client, Lead
+from app.models import Project, ActivityLog, ActivityType, Client, Lead, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.constants import PROJECT_STATUS_OPTIONS
 from sqlalchemy.orm import joinedload
-from sqlalchemy import or_
+from sqlalchemy import or_, and_
 
 projects_bp = Blueprint("projects", __name__, url_prefix="/api/projects")
 
@@ -26,36 +26,61 @@ async def list_projects():
     user = request.user
     session = SessionLocal()
     try:
-        projects = session.query(Project).options(
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = session.query(Project).options(
             joinedload(Project.client),
             joinedload(Project.lead)
         ).filter(
             Project.tenant_id == user.tenant_id,
             Project.created_by == user.id
-        ).all()
+        )
 
-        return jsonify([
-            {
-                "id": p.id,
-                "project_name": p.project_name,
-                "type": p.type,
-                "project_status": p.project_status,
-                "project_description": p.project_description,
-                "notes": p.notes,
-                "project_start": p.project_start.isoformat() if p.project_start else None,
-                "project_end": p.project_end.isoformat() if p.project_end else None,
-                "project_worth": p.project_worth,
-                "client_id": p.client_id,
-                "lead_id": p.lead_id,
-                "client_name": p.client.name if p.client else None,
-                "lead_name": p.lead.name if p.lead else None,
-                "created_at": p.created_at.isoformat() if p.created_at else None
-            } for p in projects
-        ])
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Project.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Project.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Project.project_name.asc())
+
+        total = query.count()
+        projects = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response = jsonify({
+            "projects": [
+                {
+                    "id": p.id,
+                    "project_name": p.project_name,
+                    "type": p.type,
+                    "project_status": p.project_status,
+                    "project_description": p.project_description,
+                    "notes": p.notes,
+                    "project_start": p.project_start.isoformat() if p.project_start else None,
+                    "project_end": p.project_end.isoformat() if p.project_end else None,
+                    "project_worth": p.project_worth,
+                    "client_id": p.client_id,
+                    "lead_id": p.lead_id,
+                    "client_name": p.client.name if p.client else None,
+                    "lead_name": p.lead.name if p.lead else None,
+                    "created_at": p.created_at.isoformat() if p.created_at else None
+                } for p in projects
+            ],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order
+        })
+        response.headers["Cache-Control"] = "no-store"
+        return response
     finally:
         session.close()
-
-
 
 @projects_bp.route("/<int:project_id>", methods=["GET"])
 @requires_auth()
@@ -105,7 +130,6 @@ async def get_project(project_id):
     finally:
         session.close()
 
-
 @projects_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_project():
@@ -147,7 +171,6 @@ async def create_project():
         }), 201
     finally:
         session.close()
-
 
 @projects_bp.route("/<int:project_id>", methods=["PUT"])
 @requires_auth()
@@ -196,8 +219,6 @@ async def update_project(project_id):
     finally:
         session.close()
 
-
-
 @projects_bp.route("/<int:project_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_project(project_id):
@@ -219,22 +240,70 @@ async def delete_project(project_id):
         session.close()
 
 
+
 @projects_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_projects():
     user = request.user
     session = SessionLocal()
     try:
-        projects = session.query(Project).options(
+        # Get pagination parameters
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        user_email = request.args.get("user_email")  # Filter by specific user
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = session.query(Project).options(
             joinedload(Project.client).joinedload(Client.assigned_user),
             joinedload(Project.client).joinedload(Client.created_by_user),
             joinedload(Project.lead).joinedload(Lead.assigned_user),
             joinedload(Project.lead).joinedload(Lead.created_by_user),
         ).filter(
             Project.tenant_id == user.tenant_id
-        ).all()
+        )
 
-        results = []
+        # Filter by user if specified
+        if user_email:
+            query = query.filter(
+                or_(
+                    # Client projects
+                    and_(
+                        Project.client_id != None,
+                        or_(
+                            Project.client.has(Client.assigned_user.has(User.email == user_email)),
+                            Project.client.has(Client.created_by_user.has(User.email == user_email))
+                        )
+                    ),
+                    # Lead projects
+                    and_(
+                        Project.lead_id != None,
+                        or_(
+                            Project.lead.has(Lead.assigned_user.has(User.email == user_email)),
+                            Project.lead.has(Lead.created_by_user.has(User.email == user_email))
+                        )
+                    )
+                )
+            )
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Project.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Project.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Project.project_name.asc())
+
+        total = query.count()
+        projects = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_data = {
+            "projects": []
+        }
+
         for p in projects:
             assigned_to_email = None
             if p.client and p.client.assigned_user:
@@ -246,7 +315,7 @@ async def list_all_projects():
             elif p.lead and p.lead.created_by_user:
                 assigned_to_email = p.lead.created_by_user.email
 
-            results.append({
+            response_data["projects"].append({
                 "id": p.id,
                 "project_name": p.project_name,
                 "type": p.type,
@@ -264,10 +333,19 @@ async def list_all_projects():
                 "created_at": p.created_at.isoformat() if p.created_at else None
             })
 
-        return jsonify(results)
+        response_data.update({
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order,
+            "user_email": user_email
+        })
+
+        response = jsonify(response_data)
+        response.headers["Cache-Control"] = "no-store"
+        return response
     finally:
         session.close()
-
 
 
 @projects_bp.route("/by-client/<int:client_id>", methods=["GET"])

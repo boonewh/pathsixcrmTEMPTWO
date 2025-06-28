@@ -11,6 +11,8 @@ from sqlalchemy.orm import joinedload
 leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 
 
+# Replace your existing list_leads function in leads.py with this:
+
 @leads_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_leads():
@@ -19,6 +21,11 @@ async def list_leads():
     try:
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
 
         query = session.query(Lead).options(
             joinedload(Lead.assigned_user),
@@ -34,6 +41,14 @@ async def list_leads():
                 )
             )
         )
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Lead.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Lead.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Lead.name.asc())
 
         total = query.count()
         leads = query.offset((page - 1) * per_page).limit(per_page).all()
@@ -67,7 +82,8 @@ async def list_leads():
             } for l in leads],
             "total": total,
             "page": page,
-            "per_page": per_page
+            "per_page": per_page,
+            "sort_order": sort_order
         })
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -317,47 +333,88 @@ async def assign_lead(lead_id):
         session.close()
 
 
+# Replace the existing /all endpoint in leads.py with this paginated version
+
 @leads_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_leads_admin():
     user = request.user
     session = SessionLocal()
     try:
-        leads = session.query(Lead).options(
+        # Get pagination parameters
+        page = int(request.args.get("page", 1))
+        per_page = int(request.args.get("per_page", 20))
+        sort_order = request.args.get("sort", "newest")
+        user_email = request.args.get("user_email")  # Filter by specific user
+        
+        # Validate sort order
+        if sort_order not in ["newest", "oldest", "alphabetical"]:
+            sort_order = "newest"
+
+        query = session.query(Lead).options(
             joinedload(Lead.assigned_user),
             joinedload(Lead.created_by_user)
         ).filter(
             Lead.tenant_id == user.tenant_id,
             Lead.deleted_at == None
-        ).all()
+        )
 
-        response = jsonify([{
-            "id": l.id,
-            "name": l.name,
-            "contact_person": l.contact_person,
-            "contact_title": l.contact_title,
-            "email": l.email,
-            "phone": l.phone,
-            "phone_label": l.phone_label,
-            "secondary_phone": l.secondary_phone,
-            "secondary_phone_label": l.secondary_phone_label,
-            "address": l.address,
-            "city": l.city,
-            "state": l.state,
-            "zip": l.zip,
-            "notes": l.notes,
-            "assigned_to": l.assigned_to,
-            "created_at": l.created_at.isoformat() + "Z",
-            "lead_status": l.lead_status,
-            "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
-            "type": l.type,
-            "assigned_to_name": (
-                l.assigned_user.email if l.assigned_user
-                else l.created_by_user.email if l.created_by_user
-                else None
-            ),
-            "created_by_name": l.created_by_user.email if l.created_by_user else None,
-        } for l in leads])
+        # Filter by user if specified
+        if user_email:
+            query = query.filter(
+                or_(
+                    Lead.assigned_user.has(User.email == user_email),
+                    Lead.created_by_user.has(User.email == user_email)
+                )
+            )
+
+        # Apply sorting
+        if sort_order == "newest":
+            query = query.order_by(Lead.created_at.desc())
+        elif sort_order == "oldest":
+            query = query.order_by(Lead.created_at.asc())
+        elif sort_order == "alphabetical":
+            query = query.order_by(Lead.name.asc())
+
+        total = query.count()
+        leads = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        response_data = {
+            "leads": [{
+                "id": l.id,
+                "name": l.name,
+                "contact_person": l.contact_person,
+                "contact_title": l.contact_title,
+                "email": l.email,
+                "phone": l.phone,
+                "phone_label": l.phone_label,
+                "secondary_phone": l.secondary_phone,
+                "secondary_phone_label": l.secondary_phone_label,
+                "address": l.address,
+                "city": l.city,
+                "state": l.state,
+                "zip": l.zip,
+                "notes": l.notes,
+                "assigned_to": l.assigned_to,
+                "created_at": l.created_at.isoformat() + "Z",
+                "lead_status": l.lead_status,
+                "converted_on": l.converted_on.isoformat() + "Z" if l.converted_on else None,
+                "type": l.type,
+                "assigned_to_name": (
+                    l.assigned_user.email if l.assigned_user
+                    else l.created_by_user.email if l.created_by_user
+                    else None
+                ),
+                "created_by_name": l.created_by_user.email if l.created_by_user else None,
+            } for l in leads],
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "sort_order": sort_order,
+            "user_email": user_email
+        }
+
+        response = jsonify(response_data)
         response.headers["Cache-Control"] = "no-store"
         return response
     finally:

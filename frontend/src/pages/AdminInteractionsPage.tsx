@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { useAuth } from "@/authContext";
 import { apiFetch } from "@/lib/api";
 import { Link, useSearchParams } from "react-router-dom";
+import PaginationControls from "@/components/ui/PaginationControls";
+import { usePagination } from "@/hooks/usePreferences";
 
 interface AdminInteraction {
   id: number;
@@ -26,8 +28,24 @@ interface User {
   is_active: boolean;
 }
 
-function InteractionTable({ title, interactions }: { title: string; interactions: AdminInteraction[] }) {
-  if (interactions.length === 0) return null;
+function InteractionTable({ title, interactions, loading }: { title: string; interactions: AdminInteraction[]; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold text-blue-700">{title}</h2>
+        <div className="text-center py-8 text-gray-500">Loading...</div>
+      </div>
+    );
+  }
+
+  if (interactions.length === 0) {
+    return (
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold text-blue-700">{title}</h2>
+        <div className="text-center py-8 text-gray-500">No {title.toLowerCase()} interactions found.</div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-2">
@@ -73,53 +91,95 @@ function InteractionTable({ title, interactions }: { title: string; interactions
 export default function AdminInteractionsPage() {
   const { token } = useAuth();
   const [interactions, setInteractions] = useState<AdminInteraction[]>([]);
+  const [total, setTotal] = useState(0);
   const [users, setUsers] = useState<User[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
   const selectedEmail = searchParams.get("user") || "";
 
+  // Use pagination hook with admin-specific key
+  const {
+    perPage,
+    sortOrder,
+    currentPage,
+    setCurrentPage,
+    updatePerPage,
+    updateSortOrder,
+  } = usePagination('admin_interactions');
+
+  // Load users on component mount
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchUsers = async () => {
       try {
-        const [resInteractions, resUsers] = await Promise.all([
-          apiFetch("/interactions/all", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          apiFetch("/users/", {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
-
-        const dataInteractions = await resInteractions.json();
-        const dataUsers = await resUsers.json();
-
-        setInteractions(dataInteractions);
-        setUsers(dataUsers.filter((u: User) => u.is_active));
+        const userRes = await apiFetch("/users/", {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        const usersData = await userRes.json();
+        setUsers(usersData.filter((u: User) => u.is_active));
       } catch {
-        setError("Failed to load interactions or users");
+        setError("Failed to load users");
+      }
+    };
+
+    fetchUsers();
+  }, [token]);
+
+  // Load interactions when user selection or pagination changes
+  useEffect(() => {
+    const fetchInteractions = async () => {
+      if (!selectedEmail) {
+        setInteractions([]);
+        setTotal(0);
+        setLoading(false);
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const interactionRes = await apiFetch(
+          `/interactions/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(selectedEmail)}`,
+          {
+            headers: { Authorization: `Bearer ${token}` },
+          }
+        );
+
+        const interactionsData = await interactionRes.json();
+        setInteractions(interactionsData.interactions);
+        setTotal(interactionsData.total);
+        setError("");
+      } catch {
+        setError("Failed to load interactions");
+        setInteractions([]);
+        setTotal(0);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
-  }, [token]);
+    fetchInteractions();
+  }, [token, selectedEmail, currentPage, perPage, sortOrder]);
 
+  // Reset to page 1 when user selection changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedEmail, setCurrentPage]);
+
+  const handleUserChange = (email: string) => {
+    setSearchParams(email ? { user: email } : {});
+    setCurrentPage(1);
+  };
+
+  // Categorize interactions
   const today = new Date().toISOString().slice(0, 10);
-
-  const filtered = interactions.filter(
-    (i) =>
-      i.assigned_to_name === selectedEmail || i.created_by_name === selectedEmail
-  );
 
   const overdue: AdminInteraction[] = [];
   const todayDue: AdminInteraction[] = [];
   const upcoming: AdminInteraction[] = [];
   const completed: AdminInteraction[] = [];
 
-  filtered.forEach((i) => {
+  interactions.forEach((i) => {
     const isCompleted = i.followup_status === "completed";
     const followUp = i.follow_up ? i.follow_up.slice(0, 10) : null;
 
@@ -135,7 +195,7 @@ export default function AdminInteractionsPage() {
   });
 
   return (
-    <div className="p-6 space-y-10">
+    <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-blue-800">Admin: All Interactions</h1>
       {error && <p className="text-red-500">{error}</p>}
 
@@ -146,10 +206,7 @@ export default function AdminInteractionsPage() {
         <select
           id="user-select"
           value={selectedEmail}
-          onChange={(e) => {
-            const email = e.target.value;
-            setSearchParams(email ? { user: email } : {});
-          }}
+          onChange={(e) => handleUserChange(e.target.value)}
           className="w-full border border-gray-300 rounded px-3 py-2"
         >
           <option value="">— Select a user —</option>
@@ -161,19 +218,45 @@ export default function AdminInteractionsPage() {
         </select>
       </div>
 
-      {loading ? (
-        <div className="text-gray-500 text-center py-10">Loading...</div>
-      ) : (
-        selectedEmail && (
-          <>
-            <InteractionTable title="Overdue" interactions={overdue} />
-            <InteractionTable title="Today" interactions={todayDue} />
-            <InteractionTable title="Upcoming" interactions={upcoming} />
-            <InteractionTable title="Completed" interactions={completed} />
-          </>
-        )
+      {selectedEmail && (
+        <>
+          {/* Pagination Controls at top */}
+          <PaginationControls
+            currentPage={currentPage}
+            perPage={perPage}
+            total={total}
+            sortOrder={sortOrder}
+            onPageChange={setCurrentPage}
+            onPerPageChange={updatePerPage}
+            onSortOrderChange={updateSortOrder}
+            entityName="interactions"
+            className="border-b pb-4"
+          />
+
+          {/* Categorized Interactions */}
+          <div className="space-y-8">
+            <InteractionTable title="Overdue" interactions={overdue} loading={loading} />
+            <InteractionTable title="Today" interactions={todayDue} loading={loading} />
+            <InteractionTable title="Upcoming" interactions={upcoming} loading={loading} />
+            <InteractionTable title="Completed" interactions={completed} loading={loading} />
+          </div>
+
+          {/* Pagination Controls at bottom */}
+          {total > 0 && (
+            <PaginationControls
+              currentPage={currentPage}
+              perPage={perPage}
+              total={total}
+              sortOrder={sortOrder}
+              onPageChange={setCurrentPage}
+              onPerPageChange={updatePerPage}
+              onSortOrderChange={updateSortOrder}
+              entityName="interactions"
+              className="border-t pt-4"
+            />
+          )}
+        </>
       )}
     </div>
   );
 }
-

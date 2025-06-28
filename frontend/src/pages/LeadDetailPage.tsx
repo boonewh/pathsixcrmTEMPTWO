@@ -83,7 +83,6 @@ export default function LeadDetailPage() {
           return res.json();
         })
         .then((data) => {
-          console.log("Fetched users:", data); // 👈 Add this line
           setAvailableUsers(data.filter((u: any) => u.is_active));
         })
         .catch((err) => {

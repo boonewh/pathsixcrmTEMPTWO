@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Text, Float, ForeignKe
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import Base
-from sqlalchemy import Enum
+from sqlalchemy import Enum, Index, UniqueConstraint, JSON
 import enum
 
 # Association table for many-to-many User ↔ Role
@@ -19,6 +19,7 @@ class FollowUpStatus(enum.Enum):
     completed = "completed"
     rescheduled = "rescheduled"
 
+
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
@@ -33,6 +34,7 @@ class User(Base):
     def __repr__(self):
         return f"<User {self.email}>"
 
+
 class Role(Base):
     __tablename__ = 'roles'
     id = Column(Integer, primary_key=True)
@@ -42,6 +44,7 @@ class Role(Base):
 
     def __repr__(self):
         return f"<Role {self.name}>"
+
 
 class Client(Base):
     __tablename__ = 'clients'
@@ -94,6 +97,7 @@ class Account(Base):
 
     def __repr__(self):
         return f"<Account {self.account_number}>"
+
 
 class Lead(Base):
     __tablename__ = 'leads'
@@ -185,6 +189,7 @@ class Project(Base):
     def __repr__(self):
         return f"<Project {self.project_name}>"
     
+
 class Interaction(Base):
     __tablename__ = 'interactions'
 
@@ -208,7 +213,7 @@ class Interaction(Base):
     def __repr__(self):
         return f"<Interaction {self.id} on {self.contact_date}>"
     
-# enum for consistency
+
 class ActivityType(enum.Enum):
     viewed = "viewed"
     created = "created"
@@ -229,6 +234,7 @@ class ActivityLog(Base):
 
     def __repr__(self):
         return f"<ActivityLog {self.action.value} {self.entity_type} {self.entity_id}>"
+
 
 class ChatMessage(Base):
     __tablename__ = 'chat_messages'
@@ -253,6 +259,7 @@ class ChatMessage(Base):
         target = self.room or self.recipient_id
         return f"<ChatMessage from {self.sender_id} to {target}>"
 
+
 class Message(Base):
     __tablename__ = 'messages'
 
@@ -266,3 +273,27 @@ class Message(Base):
 
     sender = relationship("User", foreign_keys=[sender_id])
     receiver = relationship("User", foreign_keys=[receiver_id])
+
+
+class UserPreference(Base):
+    __tablename__ = 'user_preferences'
+
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True)
+    category = Column(String(50), nullable=False, index=True)
+    preference_key = Column(String(100), nullable=False, index=True)
+    preference_value = Column(JSON, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    user = relationship("User", backref="preferences")
+
+    # Constraints
+    __table_args__ = (
+        Index('idx_user_preferences_lookup', 'user_id', 'category', 'preference_key'),
+        UniqueConstraint('user_id', 'category', 'preference_key', name='uq_user_category_key'),
+    )
+
+    def __repr__(self):
+        return f"<UserPreference user_id={self.user_id} {self.category}.{self.preference_key}>"
