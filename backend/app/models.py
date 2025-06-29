@@ -196,6 +196,7 @@ class Interaction(Base):
     id = Column(Integer, primary_key=True)
     lead_id = Column(Integer, ForeignKey('leads.id'), nullable=True)
     client_id = Column(Integer, ForeignKey('clients.id'), nullable=True)
+    project_id = Column(Integer, ForeignKey('projects.id'), nullable=True)  # 🆕 NEW FIELD
     tenant_id = Column(Integer, nullable=False)
     contact_person = Column(String)
     email = Column(String)
@@ -207,8 +208,10 @@ class Interaction(Base):
     followup_status = Column(Enum(FollowUpStatus), default=FollowUpStatus.pending, nullable=False)
     summary = Column(String(255))
 
+    # Relationships
     lead = relationship("Lead", backref="interactions")
     client = relationship("Client", backref="interactions")
+    project = relationship("Project", backref="interactions")  # 🆕 NEW RELATIONSHIP
 
     def __repr__(self):
         return f"<Interaction {self.id} on {self.contact_date}>"
