@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { Link, useSearchParams } from "react-router-dom";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 
 interface AdminLead {
   id: number;
@@ -185,7 +186,7 @@ export default function AdminLeadsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2">{lead.email ?? "—"}</td>
-                      <td className="px-4 py-2">{lead.phone ?? "—"}</td>
+                      <td className="px-4 py-2">{lead.phone ? formatPhoneNumber(lead.phone) : "—"}</td>
                       <td className="px-4 py-2">
                         <span className={`inline-block px-2 py-1 text-xs rounded ${
                           lead.lead_status === 'open' ? 'bg-green-100 text-green-800' :

@@ -8,6 +8,7 @@ import { Lead } from "@/types";
 import { apiFetch } from "@/lib/api";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 
 export default function Leads() {
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -253,13 +254,14 @@ const handleDelete = async (id: number) => {
                     <Mail size={14} /> {lead.email}
                   </li>
                 )}
+
                 {lead.phone && (
                   <li className="flex items-start gap-2">
                     <Phone size={14} className="mt-[2px]" />
                     <div className="leading-tight">
                       <div>
                         <a href={`tel:${lead.phone}`} className="text-blue-600 underline">
-                          {lead.phone}
+                          {formatPhoneNumber(lead.phone)}
                         </a>
                         {lead.phone_label && (
                           <span className="text-muted-foreground text-sm ml-1">
@@ -273,7 +275,7 @@ const handleDelete = async (id: number) => {
                             href={`tel:${lead.secondary_phone}`}
                             className="text-blue-600 underline"
                           >
-                            {lead.secondary_phone}
+                            {formatPhoneNumber(lead.secondary_phone)}
                           </a>
                           {lead.secondary_phone_label && (
                             <span className="text-muted-foreground text-sm ml-1">
@@ -285,6 +287,7 @@ const handleDelete = async (id: number) => {
                     </div>
                   </li>
                 )}
+
                 {(lead.address || lead.city || lead.state || lead.zip) && (
                   <li className="flex items-start gap-2">
                     <MapPin size={14} className="mt-[2px]" />

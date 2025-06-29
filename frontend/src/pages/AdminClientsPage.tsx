@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 import { Link, useSearchParams } from "react-router-dom";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 
 interface AdminClient {
   id: number;
@@ -11,9 +12,11 @@ interface AdminClient {
   email?: string;
   phone?: string;
   contact_person?: string;
+  contact_title?: string;
   assigned_to_name?: string;
   created_by_name?: string;
   created_at?: string;
+  type?: string;
 }
 
 interface User {
@@ -156,6 +159,7 @@ export default function AdminClientsPage() {
                     <th className="px-4 py-2 text-left">Contact</th>
                     <th className="px-4 py-2 text-left">Email</th>
                     <th className="px-4 py-2 text-left">Phone</th>
+                    <th className="px-4 py-2 text-left">Type</th>
                     <th className="px-4 py-2 text-left">Assigned To</th>
                     <th className="px-4 py-2 text-left">Created</th>
                   </tr>
@@ -171,9 +175,17 @@ export default function AdminClientsPage() {
                           {client.name}
                         </Link>
                       </td>
-                      <td className="px-4 py-2">{client.contact_person ?? "—"}</td>
+                      <td className="px-4 py-2">
+                        <div>
+                          {client.contact_person ?? "—"}
+                          {client.contact_title && (
+                            <div className="text-xs text-gray-500">{client.contact_title}</div>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-4 py-2">{client.email ?? "—"}</td>
-                      <td className="px-4 py-2">{client.phone ?? "—"}</td>
+                      <td className="px-4 py-2">{client.phone ? formatPhoneNumber(client.phone) : "—"}</td>
+                      <td className="px-4 py-2">{client.type ?? "—"}</td>
                       <td className="px-4 py-2">{client.assigned_to_name ?? "—"}</td>
                       <td className="px-4 py-2">
                         {client.created_at 
@@ -185,7 +197,7 @@ export default function AdminClientsPage() {
                   ))}
                   {clients.length === 0 && !loading && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-4 text-center text-gray-500">
+                      <td colSpan={7} className="px-4 py-4 text-center text-gray-500">
                         No accounts found for this user.
                       </td>
                     </tr>

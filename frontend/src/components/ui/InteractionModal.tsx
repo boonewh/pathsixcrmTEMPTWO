@@ -1,3 +1,5 @@
+import { formatPhoneNumber } from "@/lib/phoneUtils";
+
 interface InteractionModalProps {
   title: string;
   date: string;
@@ -59,11 +61,12 @@ export default function InteractionModal({
 
         <div className="text-sm text-gray-700 space-y-1 mt-4">
           {contact_person && <p><strong>Contact:</strong> {contact_person}</p>}
+
           {phone && (
             <p>
               <strong>Phone:</strong>{" "}
               <a href={`tel:${phone}`} className="text-blue-600 underline">
-                {phone}
+                {formatPhoneNumber(phone)}
               </a>
               {phone_label && (
                 <span className="text-muted-foreground text-sm ml-1">
@@ -76,7 +79,7 @@ export default function InteractionModal({
             <p>
               <strong>Alt:</strong>{" "}
               <a href={`tel:${secondary_phone}`} className="text-blue-600 underline">
-                {secondary_phone}
+                {formatPhoneNumber(secondary_phone)}
               </a>
               {secondary_phone_label && (
                 <span className="text-muted-foreground text-sm ml-1">
@@ -85,6 +88,7 @@ export default function InteractionModal({
               )}
             </p>
           )}
+
           {email && (
             <p><strong>Email:</strong> <a href={`mailto:${email}`} className="text-blue-600 underline">{email}</a></p>
           )}

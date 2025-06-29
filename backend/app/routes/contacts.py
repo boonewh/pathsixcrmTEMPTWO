@@ -2,6 +2,7 @@ from quart import Blueprint, request, jsonify
 from app.models import Contact
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
+from app.utils.phone_utils import clean_phone_number
 
 contacts_bp = Blueprint("contacts", __name__, url_prefix="/api/contacts")
 
@@ -60,9 +61,9 @@ async def create_contact():
             last_name=data.get("last_name"),
             title=data.get("title"),
             email=data.get("email"),
-            phone=data.get("phone"),
+            phone=clean_phone_number(data.get("phone")) if data.get("phone") else None,
             phone_label=data.get("phone_label"),
-            secondary_phone=data.get("secondary_phone"),
+            secondary_phone=clean_phone_number(data.get("secondary_phone")) if data.get("secondary_phone") else None,
             secondary_phone_label=data.get("secondary_phone_label"),
             notes=data.get("notes"),
         )
@@ -93,10 +94,16 @@ async def update_contact(contact_id):
 
         for field in [
             "first_name", "last_name", "title", "email",
-            "phone", "phone_label", "secondary_phone", "secondary_phone_label", "notes"
+            "phone_label", "secondary_phone_label", "notes"
         ]:
             if field in data:
                 setattr(contact, field, data[field])
+
+        # Handle phone fields separately with cleaning
+        if "phone" in data:
+            contact.phone = clean_phone_number(data["phone"]) if data["phone"] else None
+        if "secondary_phone" in data:
+            contact.secondary_phone = clean_phone_number(data["secondary_phone"]) if data["secondary_phone"] else None
 
         session.commit()
         return jsonify({"message": "Contact updated"})

@@ -8,6 +8,7 @@ import { Client } from "@/types";
 import { apiFetch } from "@/lib/api";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
@@ -251,11 +252,12 @@ export default function Customers() {
                       <Mail size={14} /> {client.email}
                     </li>
                   )}
+
                   {client.phone && (
                     <li className="flex items-center gap-2">
                       <Phone size={14} />
                       <span>
-                        {client.phone}
+                        {formatPhoneNumber(client.phone)}
                         {client.phone_label && (
                           <span className="text-muted-foreground text-sm"> ({client.phone_label})</span>
                         )}
@@ -267,13 +269,14 @@ export default function Customers() {
                     <li className="flex items-center gap-2 ml-[22px]">
                       {/* indentation to align under phone icon */}
                       <span>
-                        {client.secondary_phone}
+                        {formatPhoneNumber(client.secondary_phone)}
                         {client.secondary_phone_label && (
                           <span className="text-muted-foreground text-sm"> ({client.secondary_phone_label})</span>
                         )}
                       </span>
                     </li>
                   )}
+
                   {(client.address || client.city || client.state || client.zip) && (
                     <li className="flex items-start gap-2">
                       <MapPin size={14} className="mt-[2px]" />

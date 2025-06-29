@@ -3,6 +3,7 @@ import { UserPlus, MoreVertical } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { apiFetch } from "@/lib/api";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 
 type Contact = {
   id: number;
@@ -208,15 +209,21 @@ export default function CompanyContacts({ token, entityType, entityId }: Props) 
               )}
               {c.phone && (
                 <div className="text-sm">
-                  📞 {c.phone}{" "}
-                  {c.phone_label && <span className="text-gray-500">({c.phone_label})</span>}
-                </div>
-              )}
-              {c.secondary_phone && (
-                <div className="text-sm">
-                  ☎️ {c.secondary_phone}{" "}
-                  {c.secondary_phone_label && (
-                    <span className="text-gray-500">({c.secondary_phone_label})</span>
+                  📞 <a href={`tel:${c.phone}`} className="text-blue-600 underline">{formatPhoneNumber(c.phone)}</a>
+                  {c.phone_label && (
+                    <span className="text-muted-foreground text-sm ml-1">
+                      ({c.phone_label})
+                    </span>
+                  )}
+                  {c.secondary_phone && (
+                    <div>
+                      ☎️ <a href={`tel:${c.secondary_phone}`} className="text-blue-600 underline">{formatPhoneNumber(c.secondary_phone)}</a>
+                      {c.secondary_phone_label && (
+                        <span className="text-muted-foreground text-sm ml-1">
+                          ({c.secondary_phone_label})
+                        </span>
+                      )}
+                    </div>
                   )}
                 </div>
               )}

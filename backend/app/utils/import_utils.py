@@ -4,32 +4,8 @@ Utility functions for data import operations
 import re
 from typing import Optional, Dict, Any
 import pandas as pd
+from app.utils.phone_utils import clean_phone_number
 
-def clean_phone_number(phone: str) -> Optional[str]:
-    """
-    Clean and format phone number
-    """
-    if not phone or pd.isna(phone):
-        return None
-    
-    # Convert to string and remove whitespace
-    phone_str = str(phone).strip()
-    if not phone_str:
-        return None
-    
-    # Remove all non-numeric characters except + - ( ) and spaces
-    # Keep basic formatting that might be useful
-    cleaned = re.sub(r'[^\d\-\(\)\+\s]', '', phone_str)
-    
-    # If it's all digits, format as (XXX) XXX-XXXX for 10-digit numbers
-    digits_only = re.sub(r'[^\d]', '', cleaned)
-    if len(digits_only) == 10:
-        return f"({digits_only[:3]}) {digits_only[3:6]}-{digits_only[6:]}"
-    elif len(digits_only) == 11 and digits_only.startswith('1'):
-        return f"({digits_only[1:4]}) {digits_only[4:7]}-{digits_only[7:]}"
-    
-    # Otherwise return the cleaned version
-    return cleaned if cleaned else None
 
 def validate_email(email: str) -> Optional[str]:
     """
@@ -113,7 +89,7 @@ def map_lead_data(row: pd.Series) -> Dict[str, Any]:
         'contact_person': safe_string_convert(contact_person, 100),
         'contact_title': safe_string_convert(row.get('CONTACT TITLE'), 100),
         'email': validate_email(row.get('CONTACT EMAIL')),
-        'phone': clean_phone_number(row.get('PHONE')),
+        'phone': clean_phone_number(safe_string_convert(row.get('PHONE'))),
         'phone_label': 'work',
         'address': safe_string_convert(row.get('ADDRESS'), 255),
         'city': safe_string_convert(row.get('CITY'), 100),

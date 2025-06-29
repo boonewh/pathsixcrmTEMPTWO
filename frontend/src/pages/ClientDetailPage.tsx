@@ -11,6 +11,7 @@ import {
 import { useAuth, userHasRole } from "@/authContext";
 import { Client, Interaction, Account } from "@/types";
 import { apiFetch } from "@/lib/api";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 import CompanyNotes from "@/components/ui/CompanyNotes";
 import CompanyInteractions from "@/components/ui/CompanyInteractions";
 import CompanyContacts from "@/components/ui/CompanyContacts";
@@ -184,13 +185,14 @@ export default function ClientDetailPage() {
               </a>
             </li>
           )}
+
           {client.phone && (
             <li className="flex items-start gap-2">
               <Phone size={14} className="mt-[2px]" />
               <div className="leading-tight">
                 <div>
                   <a href={`tel:${client.phone}`} className="text-blue-600 underline">
-                    {client.phone}
+                    {formatPhoneNumber(client.phone)}
                   </a>
                   {client.phone_label && (
                     <span className="text-muted-foreground text-sm ml-1">
@@ -200,11 +202,11 @@ export default function ClientDetailPage() {
                 </div>
                 {client.secondary_phone && (
                   <div>
-                    <a
-                      href={`tel:${client.secondary_phone}`}
-                      className="text-blue-600 underline"
+                    
+                    <a href={`tel:${client.secondary_phone}`}
+                    className="text-blue-600 underline"
                     >
-                      {client.secondary_phone}
+                      {formatPhoneNumber(client.secondary_phone)}
                     </a>
                     {client.secondary_phone_label && (
                       <span className="text-muted-foreground text-sm ml-1">

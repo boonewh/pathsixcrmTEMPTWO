@@ -11,6 +11,7 @@ import {
 import { useAuth, userHasRole } from "@/authContext";
 import { Lead, Interaction } from "@/types";
 import { apiFetch } from "@/lib/api";
+import { formatPhoneNumber } from "@/lib/phoneUtils";
 import CompanyNotes from "@/components/ui/CompanyNotes";
 import CompanyInteractions from "@/components/ui/CompanyInteractions";
 import CompanyContacts from "@/components/ui/CompanyContacts";
@@ -273,13 +274,14 @@ export default function LeadDetailPage() {
             </a>
           </li>
         )}
+
         {lead.phone && (
           <li className="flex items-start gap-2">
             <Phone size={14} className="mt-[2px]" />
             <div className="leading-tight">
               <div>
                 <a href={`tel:${lead.phone}`} className="text-blue-600 underline">
-                  {lead.phone}
+                  {formatPhoneNumber(lead.phone)}
                 </a>
                 {lead.phone_label && (
                   <span className="text-muted-foreground text-sm ml-1">
@@ -289,11 +291,11 @@ export default function LeadDetailPage() {
               </div>
               {lead.secondary_phone && (
                 <div>
-                  <a
-                    href={`tel:${lead.secondary_phone}`}
+                  
+                  <a href={`tel:${lead.secondary_phone}`}
                     className="text-blue-600 underline"
                   >
-                    {lead.secondary_phone}
+                    {formatPhoneNumber(lead.secondary_phone)}
                   </a>
                   {lead.secondary_phone_label && (
                     <span className="text-muted-foreground text-sm ml-1">
@@ -305,6 +307,7 @@ export default function LeadDetailPage() {
             </div>
           </li>
         )}
+
         <li className="flex items-start gap-2">
           <MapPin size={14} className="mt-[2px]" />
           <div className="leading-tight">
@@ -335,7 +338,7 @@ export default function LeadDetailPage() {
 
       <CompanyContacts
         token={token!}
-        entityType="client"
+        entityType="lead"
         entityId={lead.id}
       />
 

@@ -4,6 +4,7 @@ from app.models import Client, ActivityLog, ActivityType, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
+from app.utils.phone_utils import clean_phone_number
 from app.constants import TYPE_OPTIONS, PHONE_LABELS
 from sqlalchemy import or_, and_
 from sqlalchemy.orm import joinedload
@@ -104,10 +105,10 @@ async def create_client():
             contact_person=data.get("contact_person"),
             contact_title=data.get("contact_title"),
             email=data.get("email"),
-            phone=data.get("phone"),
+            phone=clean_phone_number(data.get("phone")) if data.get("phone") else None,
             phone_label=data.get("phone_label", PHONE_LABELS[0]),
-            secondary_phone=data.get("secondary_phone"),
-            secondary_phone_label=data.get("secondary_phone_label"),
+            secondary_phone=clean_phone_number(data.get("secondary_phone")) if data.get("secondary_phone") else None,
+            secondary_phone_label=data.get("secondary_phone_label", PHONE_LABELS[1]),
             address=data.get("address"),
             city=data.get("city"),
             state=data.get("state"),
@@ -203,12 +204,15 @@ async def update_client(client_id):
             return jsonify({"error": "Client not found"}), 404
 
         for field in [
-            "name", "contact_person", "contact_title", "email", "phone", "phone_label",
-            "secondary_phone", "secondary_phone_label", "address", "city", "state", "zip", "notes"
+            "name", "contact_person", "contact_title", "email", "phone_label", 
+            "secondary_phone_label", "address", "city", "state", "zip", "notes"
         ]:
             if field in data:
                 setattr(client, field, data[field] or None)
-
+        if "phone" in data:
+            client.phone = clean_phone_number(data["phone"]) if data["phone"] else None
+        if "secondary_phone" in data:
+            client.secondary_phone = clean_phone_number(data["secondary_phone"]) if data["secondary_phone"] else None
         if "type" in data and data["type"] in TYPE_OPTIONS:
             client.type = data["type"]
 
