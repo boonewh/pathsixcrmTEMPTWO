@@ -30,7 +30,6 @@ export interface Client {
   type?: string;
 }
 
-
 export type Interaction = {
   id: number;
   contact_date: string;
@@ -40,8 +39,10 @@ export type Interaction = {
   follow_up?: string | null; // ISO datetime string or null
   client_id?: number;
   lead_id?: number;
+  project_id?: number; // NEW: Add project support
   client_name?: string;
   lead_name?: string;
+  project_name?: string; // NEW: Add project name
   contact_person?: string;
   email?: string;
   phone?: string;
@@ -84,7 +85,6 @@ export interface Lead {
   type?: string;
 }
 
-
 export interface Project {
   id: number;
   project_name: string;
@@ -100,4 +100,10 @@ export interface Project {
   lead_name?: string;
   created_at?: string;
   notes?: string;
+  // NEW: Contact fields for standalone projects
+  primary_contact_name?: string;
+  primary_contact_title?: string;
+  primary_contact_email?: string;
+  primary_contact_phone?: string;
+  primary_contact_phone_label?: "work" | "mobile" | "home";
 }

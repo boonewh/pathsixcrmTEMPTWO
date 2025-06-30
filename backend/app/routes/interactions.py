@@ -4,7 +4,7 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_, func
 from icalendar import Calendar, Event
 
-from app.models import Interaction, Client, Lead, FollowUpStatus, User
+from app.models import Interaction, Client, Lead, Project, FollowUpStatus, User, ActivityLog, ActivityType
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 
@@ -19,12 +19,15 @@ async def list_interactions():
     try:
         client_id = request.args.get("client_id")
         lead_id = request.args.get("lead_id")
+        project_id = request.args.get("project_id")  # NEW: Add project support
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 10))
         sort_order = request.args.get("sort", "newest")
 
-        if client_id and lead_id:
-            return jsonify({"error": "Cannot filter by both client_id and lead_id"}), 400
+        # Validate only one entity type is specified
+        entity_count = sum(bool(x) for x in [client_id, lead_id, project_id])
+        if entity_count > 1:
+            return jsonify({"error": "Cannot filter by multiple entity types"}), 400
 
         # Validate sort order
         valid_sorts = ["newest", "oldest", "pending", "completed"]
@@ -33,35 +36,60 @@ async def list_interactions():
 
         query = session.query(Interaction).options(
             joinedload(Interaction.client),
-            joinedload(Interaction.lead)
+            joinedload(Interaction.lead),
+            joinedload(Interaction.project)  # NEW: Add project loading
         ).filter(Interaction.tenant_id == user.tenant_id)
 
-        query = query.filter(
-            or_(
-                Interaction.client.has(
-                    or_(
-                        Client.created_by == user.id,
-                        Client.assigned_to == user.id
-                    )
-                ),
-                Interaction.lead.has(
-                    or_(
-                        Lead.created_by == user.id,
-                        Lead.assigned_to == user.id
+        # Apply entity-based access control
+        if not any(role.name == "admin" for role in user.roles):
+            query = query.filter(
+                or_(
+                    # Client interactions - user has access to client
+                    and_(
+                        Interaction.client_id != None,
+                        Interaction.client.has(
+                            or_(
+                                Client.created_by == user.id,
+                                Client.assigned_to == user.id
+                            )
+                        )
+                    ),
+                    # Lead interactions - user has access to lead
+                    and_(
+                        Interaction.lead_id != None,
+                        Interaction.lead.has(
+                            or_(
+                                Lead.created_by == user.id,
+                                Lead.assigned_to == user.id
+                            )
+                        )
+                    ),
+                    # Project interactions - user created the project
+                    and_(
+                        Interaction.project_id != None,
+                        Interaction.project.has(Project.created_by == user.id)
                     )
                 )
             )
-        )
 
+        # Apply entity-specific filters
         if client_id:
             query = query.filter(
                 Interaction.client_id == int(client_id),
-                Interaction.lead_id == None
+                Interaction.lead_id == None,
+                Interaction.project_id == None
             )
         elif lead_id:
             query = query.filter(
                 Interaction.lead_id == int(lead_id),
-                Interaction.client_id == None
+                Interaction.client_id == None,
+                Interaction.project_id == None
+            )
+        elif project_id:  # NEW: Project filtering
+            query = query.filter(
+                Interaction.project_id == int(project_id),
+                Interaction.client_id == None,
+                Interaction.lead_id == None
             )
 
         # Apply sorting
@@ -70,28 +98,21 @@ async def list_interactions():
         elif sort_order == "oldest":
             query = query.order_by(Interaction.contact_date.asc())
         elif sort_order == "pending":
-            # Show pending follow-ups first (has follow_up date and not completed)
             query = query.order_by(
-                # First: interactions with pending follow-ups (has follow_up and not completed)
                 (and_(
                     Interaction.follow_up != None,
                     Interaction.followup_status != FollowUpStatus.completed
                 )).desc(),
-                # Then by follow-up date if they have one
                 Interaction.follow_up.asc(),
-                # Finally by contact date
                 Interaction.contact_date.desc()
             )
         elif sort_order == "completed":
-            # Show completed follow-ups first
             query = query.order_by(
                 (Interaction.followup_status == FollowUpStatus.completed).desc(),
                 Interaction.contact_date.desc()
             )
 
         total = query.count()
-
-        # Apply pagination
         interactions = query.offset((page - 1) * per_page).limit(per_page).all()
 
         response_data = {
@@ -105,16 +126,49 @@ async def list_interactions():
                     "notes": i.notes,
                     "client_id": i.client_id,
                     "lead_id": i.lead_id,
+                    "project_id": i.project_id,  # NEW: Include project_id
                     "client_name": i.client.name if i.client else None,
                     "lead_name": i.lead.name if i.lead else None,
-                    "contact_person": i.client.contact_person if i.client else i.lead.contact_person if i.lead else None,
-                    "email": i.client.email if i.client else i.lead.email if i.lead else None,
-                    "phone": i.client.phone if i.client else i.lead.phone if i.lead else None,
-                    "phone_label": i.client.phone_label if i.client else i.lead.phone_label if i.lead else None,
-                    "secondary_phone": i.client.secondary_phone if i.client else i.lead.secondary_phone if i.lead else None,
-                    "secondary_phone_label": i.client.secondary_phone_label if i.client else i.lead.secondary_phone_label if i.lead else None,
+                    "project_name": i.project.project_name if i.project else None,  # NEW: Project name
+                    "contact_person": (
+                        i.contact_person or  # Use interaction's contact if set
+                        (i.client.contact_person if i.client else None) or
+                        (i.lead.contact_person if i.lead else None) or
+                        (i.project.primary_contact_name if i.project else None)  # NEW: Project contact
+                    ),
+                    "email": (
+                        i.email or  # Use interaction's email if set
+                        (i.client.email if i.client else None) or
+                        (i.lead.email if i.lead else None) or
+                        (i.project.primary_contact_email if i.project else None)  # NEW: Project email
+                    ),
+                    "phone": (
+                        i.phone or  # Use interaction's phone if set
+                        (i.client.phone if i.client else None) or
+                        (i.lead.phone if i.lead else None) or
+                        (i.project.primary_contact_phone if i.project else None)  # NEW: Project phone
+                    ),
+                    "phone_label": (
+                        (i.client.phone_label if i.client else None) or
+                        (i.lead.phone_label if i.lead else None) or
+                        (i.project.primary_contact_phone_label if i.project else None) or
+                        "work"
+                    ),
+                    "secondary_phone": (
+                        (i.client.secondary_phone if i.client else None) or
+                        (i.lead.secondary_phone if i.lead else None)
+                        # NOTE: Projects only have primary contact for now
+                    ),
+                    "secondary_phone_label": (
+                        (i.client.secondary_phone_label if i.client else None) or
+                        (i.lead.secondary_phone_label if i.lead else None)
+                    ),
                     "followup_status": i.followup_status.value if i.followup_status else None,
-                    "profile_link": f"/clients/{i.client_id}" if i.client_id else f"/leads/{i.lead_id}" if i.lead_id else None
+                    "profile_link": (
+                        f"/clients/{i.client_id}" if i.client_id else
+                        f"/leads/{i.lead_id}" if i.lead_id else
+                        f"/projects/{i.project_id}" if i.project_id else None  # NEW: Project link
+                    )
                 } for i in interactions
             ],
             "total": total,
@@ -137,13 +191,54 @@ async def create_interaction():
     user = request.user
     session = SessionLocal()
     try:
-        if bool(data.get("client_id")) == bool(data.get("lead_id")):
-            return jsonify({"error": "Interaction must link to either client_id or lead_id, not both or neither."}), 400
+        # Validate exactly one entity is specified
+        entity_ids = [data.get("client_id"), data.get("lead_id"), data.get("project_id")]
+        entity_count = sum(bool(x) for x in entity_ids)
+        
+        if entity_count != 1:
+            return jsonify({"error": "Interaction must link to exactly one entity (client, lead, or project)"}), 400
+
+        # Validate user has access to the entity
+        if data.get("client_id"):
+            entity = session.query(Client).filter(
+                Client.id == int(data["client_id"]),
+                Client.tenant_id == user.tenant_id,
+                Client.deleted_at == None
+            ).first()
+            if not entity:
+                return jsonify({"error": "Client not found"}), 404
+            if not any(role.name == "admin" for role in user.roles):
+                if entity.created_by != user.id and entity.assigned_to != user.id:
+                    return jsonify({"error": "Access denied to this client"}), 403
+                    
+        elif data.get("lead_id"):
+            entity = session.query(Lead).filter(
+                Lead.id == int(data["lead_id"]),
+                Lead.tenant_id == user.tenant_id,
+                Lead.deleted_at == None
+            ).first()
+            if not entity:
+                return jsonify({"error": "Lead not found"}), 404
+            if not any(role.name == "admin" for role in user.roles):
+                if entity.created_by != user.id and entity.assigned_to != user.id:
+                    return jsonify({"error": "Access denied to this lead"}), 403
+                    
+        elif data.get("project_id"):  # NEW: Project validation
+            entity = session.query(Project).filter(
+                Project.id == int(data["project_id"]),
+                Project.tenant_id == user.tenant_id
+            ).first()
+            if not entity:
+                return jsonify({"error": "Project not found"}), 404
+            if not any(role.name == "admin" for role in user.roles):
+                if entity.created_by != user.id:
+                    return jsonify({"error": "Access denied to this project"}), 403
 
         interaction = Interaction(
             tenant_id=user.tenant_id,
             client_id=int(data["client_id"]) if data.get("client_id") else None,
             lead_id=int(data["lead_id"]) if data.get("lead_id") else None,
+            project_id=int(data["project_id"]) if data.get("project_id") else None,  # NEW: Project support
             contact_date=datetime.fromisoformat(data["contact_date"]),
             summary=data["summary"],
             outcome=data.get("outcome"),
@@ -169,13 +264,30 @@ async def update_interaction(interaction_id):
     user = request.user
     session = SessionLocal()
     try:
-        interaction = session.query(Interaction).filter(
+        interaction = session.query(Interaction).options(
+            joinedload(Interaction.client),
+            joinedload(Interaction.lead),
+            joinedload(Interaction.project)  # NEW: Load project
+        ).filter(
             Interaction.id == interaction_id,
             Interaction.tenant_id == user.tenant_id
         ).first()
 
         if not interaction:
             return jsonify({"error": "Interaction not found"}), 404
+
+        # Validate user has access to the associated entity
+        if not any(role.name == "admin" for role in user.roles):
+            has_access = False
+            if interaction.client_id:
+                has_access = interaction.client.created_by == user.id or interaction.client.assigned_to == user.id
+            elif interaction.lead_id:
+                has_access = interaction.lead.created_by == user.id or interaction.lead.assigned_to == user.id
+            elif interaction.project_id:  # NEW: Project access check
+                has_access = interaction.project.created_by == user.id
+                
+            if not has_access:
+                return jsonify({"error": "Access denied"}), 403
 
         for field in [
             "contact_date", "summary", "outcome",
@@ -200,13 +312,30 @@ async def delete_interaction(interaction_id):
     user = request.user
     session = SessionLocal()
     try:
-        interaction = session.query(Interaction).filter(
+        interaction = session.query(Interaction).options(
+            joinedload(Interaction.client),
+            joinedload(Interaction.lead),
+            joinedload(Interaction.project)  # NEW: Load project
+        ).filter(
             Interaction.id == interaction_id,
             Interaction.tenant_id == user.tenant_id
         ).first()
 
         if not interaction:
             return jsonify({"error": "Interaction not found"}), 404
+
+        # Validate user has access to delete
+        if not any(role.name == "admin" for role in user.roles):
+            has_access = False
+            if interaction.client_id:
+                has_access = interaction.client.created_by == user.id or interaction.client.assigned_to == user.id
+            elif interaction.lead_id:
+                has_access = interaction.lead.created_by == user.id or interaction.lead.assigned_to == user.id
+            elif interaction.project_id:  # NEW: Project access check
+                has_access = interaction.project.created_by == user.id
+                
+            if not has_access:
+                return jsonify({"error": "Access denied"}), 403
 
         session.delete(interaction)
         session.commit()
@@ -251,7 +380,11 @@ async def transfer_interactions():
 async def get_interaction_ics(interaction_id):
     session = SessionLocal()
     try:
-        interaction = session.query(Interaction).filter(
+        interaction = session.query(Interaction).options(
+            joinedload(Interaction.client),
+            joinedload(Interaction.lead),
+            joinedload(Interaction.project)  # NEW: Load project
+        ).filter(
             Interaction.id == interaction_id
         ).first()
 
@@ -265,13 +398,46 @@ async def get_interaction_ics(interaction_id):
         cal.add("prodid", "-//PathSix CRM//EN")
         cal.add("version", "2.0")
 
+        # Determine entity name for calendar event
+        entity_name = (
+            interaction.client.name if interaction.client else
+            interaction.lead.name if interaction.lead else
+            interaction.project.project_name if interaction.project else  # NEW: Project name
+            "CRM Entity"
+        )
+
+        contact_name = (
+            interaction.contact_person or
+            (interaction.client.contact_person if interaction.client else None) or
+            (interaction.lead.contact_person if interaction.lead else None) or
+            (interaction.project.primary_contact_name if interaction.project else None) or  # NEW: Project contact
+            "Contact"
+        )
+
         event = Event()
-        event.add("summary", f"Follow-up: {interaction.contact_person or 'CRM Interaction'}")
+        event.add("summary", f"Follow-up: {entity_name} - {contact_name}")
         event.add("dtstart", interaction.follow_up)
         event.add("dtend", interaction.follow_up)
         event.add("dtstamp", interaction.contact_date)
         event.add("description", f"Outcome: {interaction.outcome or ''}\nNotes: {interaction.notes or ''}")
-        event.add("location", f"Phone: {interaction.phone or ''}\nEmail: {interaction.email or ''}")
+        
+        # Build location string with contact info
+        location_parts = []
+        if interaction.phone or (interaction.client and interaction.client.phone) or (interaction.lead and interaction.lead.phone) or (interaction.project and interaction.project.primary_contact_phone):
+            phone = (interaction.phone or 
+                    (interaction.client.phone if interaction.client else None) or
+                    (interaction.lead.phone if interaction.lead else None) or
+                    (interaction.project.primary_contact_phone if interaction.project else None))
+            location_parts.append(f"Phone: {phone}")
+            
+        if interaction.email or (interaction.client and interaction.client.email) or (interaction.lead and interaction.lead.email) or (interaction.project and interaction.project.primary_contact_email):
+            email = (interaction.email or 
+                    (interaction.client.email if interaction.client else None) or
+                    (interaction.lead.email if interaction.lead else None) or
+                    (interaction.project.primary_contact_email if interaction.project else None))
+            location_parts.append(f"Email: {email}")
+            
+        event.add("location", "\n".join(location_parts))
         event["uid"] = f"interaction-{interaction.id}@pathsixcrm"
 
         cal.add_component(event)
@@ -294,13 +460,30 @@ async def complete_interaction(interaction_id):
     user = request.user
     session = SessionLocal()
     try:
-        interaction = session.query(Interaction).filter(
+        interaction = session.query(Interaction).options(
+            joinedload(Interaction.client),
+            joinedload(Interaction.lead),
+            joinedload(Interaction.project)  # NEW: Load project
+        ).filter(
             Interaction.id == interaction_id,
             Interaction.tenant_id == user.tenant_id
         ).first()
 
         if not interaction:
             return jsonify({"error": "Interaction not found"}), 404
+
+        # Validate user has access
+        if not any(role.name == "admin" for role in user.roles):
+            has_access = False
+            if interaction.client_id:
+                has_access = interaction.client.created_by == user.id or interaction.client.assigned_to == user.id
+            elif interaction.lead_id:
+                has_access = interaction.lead.created_by == user.id or interaction.lead.assigned_to == user.id
+            elif interaction.project_id:  # NEW: Project access check
+                has_access = interaction.project.created_by == user.id
+                
+            if not has_access:
+                return jsonify({"error": "Access denied"}), 403
 
         interaction.followup_status = FollowUpStatus.completed
         session.commit()
@@ -309,21 +492,17 @@ async def complete_interaction(interaction_id):
         session.close()
 
 
-# Replace the existing /all endpoint in interactions.py with this paginated version
-
 @interactions_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_interactions_admin():
     user = request.user
     session = SessionLocal()
     try:
-        # Get pagination parameters
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 20))
         sort_order = request.args.get("sort", "newest")
-        user_email = request.args.get("user_email")  # Filter by specific user
+        user_email = request.args.get("user_email")
         
-        # Validate sort order
         if sort_order not in ["newest", "oldest", "alphabetical"]:
             sort_order = "newest"
 
@@ -331,7 +510,8 @@ async def list_all_interactions_admin():
             joinedload(Interaction.client).joinedload(Client.assigned_user),
             joinedload(Interaction.client).joinedload(Client.created_by_user),
             joinedload(Interaction.lead).joinedload(Lead.assigned_user),
-            joinedload(Interaction.lead).joinedload(Lead.created_by_user)
+            joinedload(Interaction.lead).joinedload(Lead.created_by_user),
+            joinedload(Interaction.project)  # NEW: Add project loading
         ).filter(
             Interaction.tenant_id == user.tenant_id
         )
@@ -355,6 +535,13 @@ async def list_all_interactions_admin():
                             Interaction.lead.has(Lead.assigned_user.has(User.email == user_email)),
                             Interaction.lead.has(Lead.created_by_user.has(User.email == user_email))
                         )
+                    ),
+                    # Project interactions - NEW: Add project filtering
+                    and_(
+                        Interaction.project_id != None,
+                        Interaction.project.has(Project.created_by == 
+                            session.query(User.id).filter(User.email == user_email).scalar_subquery()
+                        )
                     )
                 )
             )
@@ -365,11 +552,12 @@ async def list_all_interactions_admin():
         elif sort_order == "oldest":
             query = query.order_by(Interaction.contact_date.asc())
         elif sort_order == "alphabetical":
-            # Sort by client/lead name alphabetically
+            # Sort by entity name alphabetically
             query = query.order_by(
-                func.coalesce(Client.name, Lead.name).asc()
+                func.coalesce(Client.name, Lead.name, Project.project_name).asc()  # NEW: Include project name
             ).outerjoin(Client, Interaction.client_id == Client.id)\
-             .outerjoin(Lead, Interaction.lead_id == Lead.id)
+             .outerjoin(Lead, Interaction.lead_id == Lead.id)\
+             .outerjoin(Project, Interaction.project_id == Project.id)  # NEW: Join projects
 
         total = query.count()
         interactions = query.offset((page - 1) * per_page).limit(per_page).all()
@@ -384,32 +572,41 @@ async def list_all_interactions_admin():
                 "notes": i.notes,
                 "client_id": i.client_id,
                 "lead_id": i.lead_id,
+                "project_id": i.project_id,  # NEW: Include project_id
                 "client_name": i.client.name if i.client else None,
                 "lead_name": i.lead.name if i.lead else None,
+                "project_name": i.project.project_name if i.project else None,  # NEW: Project name
                 "contact_person": (
                     i.contact_person.strip() if i.contact_person and i.contact_person.strip()
                     else i.client.contact_person if i.client
                     else i.lead.contact_person if i.lead
+                    else i.project.primary_contact_name if i.project  # NEW: Project contact
                     else None
                 ),
                 "email": (
                     i.email or
-                    i.client.email if i.client else
-                    i.lead.email if i.lead else None
+                    (i.client.email if i.client else None) or
+                    (i.lead.email if i.lead else None) or
+                    (i.project.primary_contact_email if i.project else None)  # NEW: Project email
                 ),
                 "phone": (
                     i.phone or
-                    i.client.phone if i.client else
-                    i.lead.phone if i.lead else None
+                    (i.client.phone if i.client else None) or
+                    (i.lead.phone if i.lead else None) or
+                    (i.project.primary_contact_phone if i.project else None)  # NEW: Project phone
                 ),
                 "followup_status": i.followup_status.value if i.followup_status else None,
-                "profile_link": f"/clients/{i.client_id}" if i.client_id else f"/leads/{i.lead_id}" if i.lead_id else None,
+                "profile_link": (
+                    f"/clients/{i.client_id}" if i.client_id else
+                    f"/leads/{i.lead_id}" if i.lead_id else
+                    f"/projects/{i.project_id}" if i.project_id else None  # NEW: Project link
+                ),
                 "assigned_to_name": (
                     i.client.assigned_user.email if i.client and i.client.assigned_user
                     else i.client.created_by_user.email if i.client and i.client.created_by_user
                     else i.lead.assigned_user.email if i.lead and i.lead.assigned_user
                     else i.lead.created_by_user.email if i.lead and i.lead.created_by_user
-                    else None
+                    else None  # NOTE: Projects don't have assigned_to yet, only created_by
                 )
             } for i in interactions],
             "total": total,

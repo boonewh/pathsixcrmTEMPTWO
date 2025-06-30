@@ -6,6 +6,7 @@ from app.utils.auth_utils import requires_auth
 
 activity_bp = Blueprint("activity", __name__, url_prefix="/api/activity")
 
+
 @activity_bp.route("/recent", methods=["GET"])
 @requires_auth()
 async def recent_activity():
@@ -61,6 +62,7 @@ async def recent_activity():
                     name = lead.name
                     profile_link = f"/leads/{lead.id}"
 
+            # NEW: Add project support
             elif entity_type == "project":
                 project = session.query(Project).filter(
                     Project.id == entity_id,
@@ -68,10 +70,7 @@ async def recent_activity():
                 ).first()
                 if project:
                     name = project.project_name
-                    if project.client_id:
-                        profile_link = f"/clients/{project.client_id}"
-                    elif project.lead_id:
-                        profile_link = f"/leads/{project.lead_id}"
+                    profile_link = f"/projects/{project.id}"
 
             elif entity_type == "account":
                 account = session.query(Account).filter(
@@ -97,4 +96,3 @@ async def recent_activity():
 
     finally:
         session.close()
-

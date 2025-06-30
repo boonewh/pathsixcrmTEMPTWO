@@ -173,7 +173,14 @@ export default function Projects() {
           {projects.map((project) => (
             <div key={project.id} className="w-full">
               <EntityCard
-                title={project.project_name}
+                title={
+                  <Link
+                    to={`/projects/${project.id}`}
+                    className="hover:underline font-medium text-base block"
+                  >
+                    {project.project_name}
+                  </Link>
+                }
                 editing={editingId === project.id}
                 onEdit={() => {
                   setEditingId(project.id);

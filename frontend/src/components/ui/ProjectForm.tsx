@@ -2,51 +2,29 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Project } from "@/types";
+import PhoneInput from "@/components/ui/PhoneInput";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
 
-interface SelectableEntity {
-  id: number;
-  name: string;
-}
-
 interface ProjectFormProps {
   form: Partial<Project>;
   setForm: React.Dispatch<React.SetStateAction<Partial<Project>>>;
-  clients: SelectableEntity[];
-  leads: SelectableEntity[];
+  clients: { id: number; name: string }[];
+  leads: { id: number; name: string }[];
 }
 
-function splitDateTime(datetime?: string): { date: string; time: string } {
-  if (!datetime) return { date: "", time: "" };
-  const [date, time = ""] = datetime.split("T");
-  return { date, time: time.slice(0, 5) }; // truncate to HH:MM
-}
-
-function combineDateTime(date: string, time: string): string | undefined {
-  if (!date) return undefined;
-  return `${date}T${time || "00:00"}`;
-}
-
-export default function ProjectForm({
-  form,
-  setForm,
-  clients,
-  leads,
-}: ProjectFormProps) {
-  const { date: startDate, time: startTime } = splitDateTime(form.project_start);
-  const { date: endDate, time: endTime } = splitDateTime(form.project_end);
-
+export default function ProjectForm({ form, setForm, clients, leads }: ProjectFormProps) {
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Basic Project Information */}
       <div className="grid gap-2">
-        <Label htmlFor="project_name">Project Name</Label>
+        <Label htmlFor="project_name">Project Name *</Label>
         <Input
           id="project_name"
-          className="w-full"
           value={form.project_name || ""}
           onChange={(e) => setForm({ ...form, project_name: e.target.value })}
+          required
         />
       </div>
 
@@ -71,24 +49,12 @@ export default function ProjectForm({
       </div>
 
       <div className="grid gap-2">
-        <Label htmlFor="project_description">Description</Label>
-        <Textarea
-          id="project_description"
-          className="w-full"
-          value={form.project_description || ""}
-          onChange={(e) =>
-            setForm({ ...form, project_description: e.target.value })
-          }
-        />
-      </div>
-
-      <div className="grid gap-2">
         <Label htmlFor="project_status">Status</Label>
         <select
           id="project_status"
-          value={form.project_status ?? "pending"}
+          value={form.project_status || "pending"}
           onChange={(e) => setForm({ ...form, project_status: e.target.value })}
-          className="w-full border rounded px-2 py-1 text-sm"
+          className="border border-input bg-background text-sm rounded-md px-2 py-1"
         >
           <option value="pending">Pending</option>
           <option value="won">Won</option>
@@ -96,139 +62,177 @@ export default function ProjectForm({
         </select>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
+      {/* Entity Assignment */}
+      <div className="grid grid-cols-2 gap-4">
         <div className="grid gap-2">
-          <Label htmlFor="project_start_date">Start Date</Label>
-          <Input
-            id="project_start_date"
-            type="date"
-            className="w-full"
-            value={startDate}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                project_start: combineDateTime(e.target.value, startTime),
-              })
-            }
-          />
-          <Input
-            id="project_start_time"
-            type="time"
-            className="w-full"
-            value={startTime}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                project_start: combineDateTime(startDate, e.target.value),
-              })
-            }
-          />
+          <Label htmlFor="client_id">{USE_ACCOUNT_LABELS ? "Account" : "Client"} (Optional)</Label>
+          <select
+            id="client_id"
+            value={form.client_id || ""}
+            onChange={(e) => {
+              const clientId = e.target.value ? parseInt(e.target.value) : undefined;
+              setForm({ ...form, client_id: clientId, lead_id: undefined });
+            }}
+            className="border border-input bg-background text-sm rounded-md px-2 py-1"
+          >
+            <option value="">-- No {USE_ACCOUNT_LABELS ? "Account" : "Client"} --</option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div className="grid gap-2">
-          <Label htmlFor="project_end_date">End Date</Label>
-          <Input
-            id="project_end_date"
-            type="date"
-            className="w-full"
-            value={endDate}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                project_end: combineDateTime(e.target.value, endTime),
-              })
-            }
-          />
-          <Input
-            id="project_end_time"
-            type="time"
-            className="w-full"
-            value={endTime}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                project_end: combineDateTime(endDate, e.target.value),
-              })
-            }
-          />
+          <Label htmlFor="lead_id">Lead (Optional)</Label>
+          <select
+            id="lead_id"
+            value={form.lead_id || ""}
+            onChange={(e) => {
+              const leadId = e.target.value ? parseInt(e.target.value) : undefined;
+              setForm({ ...form, lead_id: leadId, client_id: undefined });
+            }}
+            className="border border-input bg-background text-sm rounded-md px-2 py-1"
+          >
+            <option value="">-- No Lead --</option>
+            {leads.map((lead) => (
+              <option key={lead.id} value={lead.id}>
+                {lead.name}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
+      {/* NEW: Primary Contact Information Section */}
+      <div className="border-t pt-4">
+        <h3 className="text-lg font-semibold text-gray-800 mb-3">Primary Contact</h3>
+        <p className="text-sm text-gray-600 mb-4">
+          For standalone projects, add contact information. This will be used for interactions and follow-ups.
+        </p>
+
+        <div className="grid gap-2">
+          <Label htmlFor="primary_contact_name">Contact Name</Label>
+          <Input
+            id="primary_contact_name"
+            value={form.primary_contact_name || ""}
+            onChange={(e) => setForm({ ...form, primary_contact_name: e.target.value })}
+            placeholder="John Doe"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="primary_contact_title">Contact Title</Label>
+          <Input
+            id="primary_contact_title"
+            value={form.primary_contact_title || ""}
+            onChange={(e) => setForm({ ...form, primary_contact_title: e.target.value })}
+            placeholder="Project Manager"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="primary_contact_email">Contact Email</Label>
+          <Input
+            id="primary_contact_email"
+            type="email"
+            value={form.primary_contact_email || ""}
+            onChange={(e) => setForm({ ...form, primary_contact_email: e.target.value })}
+            placeholder="john.doe@company.com"
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="primary_contact_phone">Contact Phone</Label>
+          <div className="flex gap-2">
+            <PhoneInput
+              value={form.primary_contact_phone || ""}
+              onChange={(cleanedPhone) => setForm({ ...form, primary_contact_phone: cleanedPhone })}
+              placeholder="(123) 456-7890"
+              className="flex-1"
+            />
+            <select
+              value={form.primary_contact_phone_label || "work"}
+              onChange={(e) => setForm({ ...form, primary_contact_phone_label: e.target.value as "work" | "mobile" | "home" })}
+              className="border border-input bg-background text-sm rounded-md px-2 py-1 w-20"
+            >
+              <option value="work">Work</option>
+              <option value="mobile">Mobile</option>
+              <option value="home">Home</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {/* Project Details */}
       <div className="grid gap-2">
-        <Label htmlFor="project_worth">Worth ($)</Label>
+        <Label htmlFor="project_description">Description</Label>
+        <Textarea
+          id="project_description"
+          value={form.project_description || ""}
+          onChange={(e) => setForm({ ...form, project_description: e.target.value })}
+          placeholder="Project description..."
+        />
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="project_worth">Project Worth ($)</Label>
         <Input
           id="project_worth"
           type="number"
-          className="w-full"
+          min="0"
+          step="0.01"
           value={form.project_worth || ""}
-          onChange={(e) =>
-            setForm({
-              ...form,
-              project_worth: parseFloat(e.target.value) || 0,
-            })
-          }
+          onChange={(e) => setForm({ ...form, project_worth: parseFloat(e.target.value) || 0 })}
         />
+      </div>
+
+      {/* Project Timeline */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="grid gap-2">
+          <Label htmlFor="project_start">Start Date</Label>
+          <Input
+            id="project_start"
+            type="date"
+            value={form.project_start ? form.project_start.split('T')[0] : ""}
+            onChange={(e) => setForm({ ...form, project_start: e.target.value })}
+          />
+        </div>
+
+        <div className="grid gap-2">
+          <Label htmlFor="project_end">End Date</Label>
+          <Input
+            id="project_end"
+            type="date"
+            value={form.project_end ? form.project_end.split('T')[0] : ""}
+            onChange={(e) => setForm({ ...form, project_end: e.target.value })}
+          />
+        </div>
       </div>
 
       <div className="grid gap-2">
         <Label htmlFor="notes">Notes</Label>
         <Textarea
           id="notes"
-          className="w-full"
           value={form.notes || ""}
           onChange={(e) => setForm({ ...form, notes: e.target.value })}
+          placeholder="Additional notes..."
         />
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <div className="grid gap-2">
-          <Label htmlFor="client_id">
-            {USE_ACCOUNT_LABELS ? "Account" : "Client"}
-          </Label>
-          <select
-            id="client_id"
-            className="w-full min-w-0 border rounded px-2 py-1 text-sm"
-            value={form.client_id || ""}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                client_id: parseInt(e.target.value) || undefined,
-              })
-            }
-          >
-            <option value="">
-              -- Select {USE_ACCOUNT_LABELS ? "Account" : "Client"} --
-            </option>
-            {clients.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+      {/* Warning for unassigned projects */}
+      {!form.client_id && !form.lead_id && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <p className="text-sm text-yellow-800">
+              <strong>Standalone Project:</strong> This project is not linked to a {USE_ACCOUNT_LABELS ? "account" : "client"} or lead. 
+              Make sure to add contact information above for proper interaction tracking.
+            </p>
+          </div>
         </div>
-
-        <div className="grid gap-2">
-          <Label htmlFor="lead_id">Lead</Label>
-          <select
-            id="lead_id"
-            className="w-full min-w-0 border rounded px-2 py-1 text-sm"
-            value={form.lead_id || ""}
-            onChange={(e) =>
-              setForm({
-                ...form,
-                lead_id: parseInt(e.target.value) || undefined,
-              })
-            }
-          >
-            <option value="">-- Select Lead --</option>
-            {leads.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

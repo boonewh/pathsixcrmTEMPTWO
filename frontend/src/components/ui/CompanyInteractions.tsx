@@ -10,14 +10,16 @@ import { generateGoogleCalendarUrl } from "@/lib/calendarUtils";
 
 const USE_ACCOUNT_LABELS = true;
 
+type EntityType = "lead" | "client" | "project"; // NEW: Add project support
+
 type Props = {
   token: string;
-  entityType: "lead" | "client";
+  entityType: EntityType; // NEW: Update to use EntityType
   entityId: number;
   initialInteractions: Interaction[];
 };
 
-export default function CompanyInteractions({
+export default function EntityInteractions({
   token,
   entityType,
   entityId,
@@ -38,7 +40,7 @@ export default function CompanyInteractions({
     follow_up: null,
   });
 
-  // Use pagination hook with simple interactions key
+  // Use pagination hook with entity-specific key
   const {
     perPage,
     sortOrder,
@@ -46,7 +48,7 @@ export default function CompanyInteractions({
     setCurrentPage,
     updatePerPage,
     updateSortOrder,
-  } = usePagination('interactions');
+  } = usePagination(`${entityType}_interactions`);
 
   const resetForm = () => {
     setForm({
@@ -91,7 +93,7 @@ export default function CompanyInteractions({
       },
       body: JSON.stringify({
         ...form,
-        [`${entityType}_id`]: entityId,
+        [`${entityType}_id`]: entityId, // Dynamically set the entity ID field
       }),
     });
 
@@ -177,6 +179,20 @@ export default function CompanyInteractions({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // NEW: Generate entity display name
+  const getEntityDisplayName = () => {
+    switch (entityType) {
+      case "client":
+        return USE_ACCOUNT_LABELS ? "Account" : "Client";
+      case "lead":
+        return "Lead";
+      case "project":
+        return "Project";
+      default:
+        return "Entity";
+    }
+  };
+
   return (
     <details className="bg-white rounded shadow-sm border">
       <summary className="cursor-pointer px-4 py-2 font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-t flex items-center gap-2">
@@ -245,6 +261,10 @@ export default function CompanyInteractions({
                       : "Missing date"}
                   </strong>
                 </p>
+
+                {i.summary && (
+                  <p className="text-sm font-medium text-gray-800 mt-1">{i.summary}</p>
+                )}
 
                 {i.followup_status === "completed" && (
                   <span className="inline-block mt-1 text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">
@@ -351,7 +371,7 @@ export default function CompanyInteractions({
 
         {selectedInteraction && (
           <InteractionModal
-            title={`${entityType === "client" ? (USE_ACCOUNT_LABELS ? "Account" : "Client") : "Lead"} Interaction`}
+            title={`${getEntityDisplayName()} Interaction`}
             date={new Date(selectedInteraction.contact_date).toLocaleString()}
             outcome={selectedInteraction.outcome}
             summary={selectedInteraction.summary}

@@ -172,6 +172,11 @@ class Project(Base):
     project_name = Column(String(255), nullable=False)
     project_description = Column(Text, nullable=True)
     type = Column(String(50), nullable=True, default="None")
+    primary_contact_name = Column(String(100), nullable=True)
+    primary_contact_title = Column(String(100), nullable=True)
+    primary_contact_email = Column(String(120), nullable=True)
+    primary_contact_phone = Column(String(20), nullable=True)
+    primary_contact_phone_label = Column(String(20), nullable=True)
     notes = Column(Text, nullable=True)
     project_status = Column(String(20), nullable=False) # Valid values: "pending", "won", "lost"
     project_start = Column(DateTime, nullable=True)

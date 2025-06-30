@@ -3,7 +3,8 @@ from datetime import datetime
 from app.models import Project, ActivityLog, ActivityType, Client, Lead, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
-from app.constants import PROJECT_STATUS_OPTIONS
+from app.utils.phone_utils import clean_phone_number  # NEW: Add phone utility
+from app.constants import PROJECT_STATUS_OPTIONS, PHONE_LABELS
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_
 
@@ -69,7 +70,13 @@ async def list_projects():
                     "lead_id": p.lead_id,
                     "client_name": p.client.name if p.client else None,
                     "lead_name": p.lead.name if p.lead else None,
-                    "created_at": p.created_at.isoformat() if p.created_at else None
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    # NEW: Include contact fields in response
+                    "primary_contact_name": p.primary_contact_name,
+                    "primary_contact_title": p.primary_contact_title,
+                    "primary_contact_email": p.primary_contact_email,
+                    "primary_contact_phone": p.primary_contact_phone,
+                    "primary_contact_phone_label": p.primary_contact_phone_label
                 } for p in projects
             ],
             "total": total,
@@ -81,6 +88,7 @@ async def list_projects():
         return response
     finally:
         session.close()
+
 
 @projects_bp.route("/<int:project_id>", methods=["GET"])
 @requires_auth()
@@ -99,6 +107,7 @@ async def get_project(project_id):
         if not project:
             return jsonify({"error": "Project not found"}), 404
 
+        # 🆕 Add activity log for "Recently Touched"
         log = ActivityLog(
             tenant_id=user.tenant_id,
             user_id=user.id,
@@ -126,9 +135,15 @@ async def get_project(project_id):
             "lead_name": project.lead.name if project.lead else None,
             "created_by": project.created_by,
             "created_at": project.created_at.isoformat() + "Z" if project.created_at else None,
+            "primary_contact_name": getattr(project, 'primary_contact_name', None),
+            "primary_contact_title": getattr(project, 'primary_contact_title', None),
+            "primary_contact_email": getattr(project, 'primary_contact_email', None),
+            "primary_contact_phone": getattr(project, 'primary_contact_phone', None),
+            "primary_contact_phone_label": getattr(project, 'primary_contact_phone_label', None)
         })
     finally:
         session.close()
+
 
 @projects_bp.route("/", methods=["POST"])
 @requires_auth()
@@ -155,7 +170,13 @@ async def create_project():
             project_end=parse_date_with_default_time(data.get("project_end")),
             project_worth=data.get("project_worth") or 0,
             created_by=user.id,
-            created_at=datetime.utcnow()
+            created_at=datetime.utcnow(),
+            # NEW: Handle contact fields
+            primary_contact_name=data.get("primary_contact_name"),
+            primary_contact_title=data.get("primary_contact_title"),
+            primary_contact_email=data.get("primary_contact_email"),
+            primary_contact_phone=clean_phone_number(data.get("primary_contact_phone")) if data.get("primary_contact_phone") else None,
+            primary_contact_phone_label=data.get("primary_contact_phone_label", PHONE_LABELS[0])
         )
         session.add(project)
         session.commit()
@@ -187,6 +208,7 @@ async def update_project(project_id):
         if not project:
             return jsonify({"error": "Project not found"}), 404
 
+        # Update basic fields
         for field in [
             "project_name", "type", "project_description", "project_worth", "client_id", "lead_id", "notes"
         ]:
@@ -195,6 +217,18 @@ async def update_project(project_id):
                     setattr(project, field, data.get("project_worth") or 0)
                 else:
                     setattr(project, field, data[field])
+
+        # NEW: Handle contact fields
+        contact_fields = [
+            "primary_contact_name", "primary_contact_title", "primary_contact_email", "primary_contact_phone_label"
+        ]
+        for field in contact_fields:
+            if field in data:
+                setattr(project, field, data[field] or None)
+
+        # Handle phone number with cleaning
+        if "primary_contact_phone" in data:
+            project.primary_contact_phone = clean_phone_number(data["primary_contact_phone"]) if data["primary_contact_phone"] else None
                 
         if "project_status" in data:
             status = data["project_status"]
@@ -239,7 +273,36 @@ async def delete_project(project_id):
     finally:
         session.close()
 
+# NEW: Add project interactions endpoint
+@projects_bp.route("/<int:project_id>/interactions", methods=["GET"])
+@requires_auth()
+async def get_project_interactions(project_id):
+    """Get interactions for a specific project"""
+    user = request.user
+    session = SessionLocal()
+    try:
+        # Verify project exists and user has access
+        project = session.query(Project).filter(
+            Project.id == project_id,
+            Project.tenant_id == user.tenant_id
+        ).first()
 
+        if not project:
+            return jsonify({"error": "Project not found"}), 404
+
+        # Check access permissions
+        if not any(role.name == "admin" for role in user.roles):
+            if project.created_by != user.id:
+                return jsonify({"error": "Access denied"}), 403
+
+        # This will redirect to the main interactions endpoint with project_id filter
+        # The frontend can call /api/interactions/?project_id={project_id} directly
+        return jsonify({
+            "redirect": f"/api/interactions/?project_id={project_id}",
+            "message": "Use the main interactions endpoint with project_id parameter"
+        })
+    finally:
+        session.close()
 
 @projects_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
@@ -247,13 +310,11 @@ async def list_all_projects():
     user = request.user
     session = SessionLocal()
     try:
-        # Get pagination parameters
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 20))
         sort_order = request.args.get("sort", "newest")
-        user_email = request.args.get("user_email")  # Filter by specific user
+        user_email = request.args.get("user_email")
         
-        # Validate sort order
         if sort_order not in ["newest", "oldest", "alphabetical"]:
             sort_order = "newest"
 
@@ -266,7 +327,6 @@ async def list_all_projects():
             Project.tenant_id == user.tenant_id
         )
 
-        # Filter by user if specified
         if user_email:
             query = query.filter(
                 or_(
@@ -289,7 +349,6 @@ async def list_all_projects():
                 )
             )
 
-        # Apply sorting
         if sort_order == "newest":
             query = query.order_by(Project.created_at.desc())
         elif sort_order == "oldest":
@@ -330,7 +389,13 @@ async def list_all_projects():
                 "client_name": p.client.name if p.client else None,
                 "lead_name": p.lead.name if p.lead else None,
                 "assigned_to_email": assigned_to_email,
-                "created_at": p.created_at.isoformat() if p.created_at else None
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+                # NEW: Include contact fields in admin view
+                "primary_contact_name": p.primary_contact_name,
+                "primary_contact_title": p.primary_contact_title,
+                "primary_contact_email": p.primary_contact_email,
+                "primary_contact_phone": p.primary_contact_phone,
+                "primary_contact_phone_label": p.primary_contact_phone_label
             })
 
         response_data.update({
@@ -347,14 +412,12 @@ async def list_all_projects():
     finally:
         session.close()
 
-
 @projects_bp.route("/by-client/<int:client_id>", methods=["GET"])
 @requires_auth()
 async def list_projects_by_client(client_id):
     user = request.user
     session = SessionLocal()
     try:
-        # Only allow access if the client is visible to the user
         client = session.query(Client).filter(
             Client.id == client_id,
             Client.tenant_id == user.tenant_id,
@@ -364,7 +427,6 @@ async def list_projects_by_client(client_id):
         if not client:
             return jsonify({"error": "Client not found"}), 404
 
-        # If not admin, restrict based on assignment/ownership
         if not any(role.name == "admin" for role in user.roles):
             if client.assigned_to != user.id and client.created_by != user.id:
                 return jsonify({"error": "Forbidden"}), 403
@@ -386,6 +448,12 @@ async def list_projects_by_client(client_id):
                 "project_end": p.project_end.isoformat() if p.project_end else None,
                 "project_worth": p.project_worth,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
+                # NEW: Include contact fields
+                "primary_contact_name": p.primary_contact_name,
+                "primary_contact_title": p.primary_contact_title,
+                "primary_contact_email": p.primary_contact_email,
+                "primary_contact_phone": p.primary_contact_phone,
+                "primary_contact_phone_label": p.primary_contact_phone_label
             } for p in projects
         ])
     finally:
@@ -427,6 +495,12 @@ async def list_projects_by_lead(lead_id):
                 "project_end": p.project_end.isoformat() if p.project_end else None,
                 "project_worth": p.project_worth,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
+                # NEW: Include contact fields
+                "primary_contact_name": p.primary_contact_name,
+                "primary_contact_title": p.primary_contact_title,
+                "primary_contact_email": p.primary_contact_email,
+                "primary_contact_phone": p.primary_contact_phone,
+                "primary_contact_phone_label": p.primary_contact_phone_label
             } for p in projects
         ])
     finally:
