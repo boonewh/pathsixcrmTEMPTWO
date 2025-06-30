@@ -46,19 +46,56 @@ export default function ClientForm({ form, setForm }: ClientFormProps) {
         <Input id="contact_title" value={form.contact_title} onChange={(e) => setForm({ ...form, contact_title: e.target.value })} />
       </div>
 
-      <PhoneInput
-        value={form.phone || ""}
-        onChange={(cleanedPhone) => setForm({ ...form, phone: cleanedPhone })}
-        placeholder="(123) 456-7890"
-        className="col-span-2"
-      />
+      <div className="grid gap-2">
+        <Label htmlFor="email">Email</Label>
+        <Input id="email" type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+      </div>
 
-      <PhoneInput
-        value={form.secondary_phone || ""}
-        onChange={(cleanedPhone) => setForm({ ...form, secondary_phone: cleanedPhone })}
-        placeholder="(123) 555-6789"
-        className="col-span-2"
-      />
+      <div className="grid gap-2">
+        <Label htmlFor="phone">Phone</Label>
+        <div className="grid grid-cols-3 gap-2">
+          <PhoneInput
+            value={form.phone || ""}
+            onChange={(cleanedPhone) => setForm({ ...form, phone: cleanedPhone })}
+            placeholder="(123) 456-7890"
+            className="col-span-2"
+          />
+          <select
+            value={form.phone_label || "work"}
+            onChange={(e) => setForm({ ...form, phone_label: e.target.value as "work" | "mobile" })}
+            className="border border-input bg-background text-sm rounded-md px-2 py-1"
+          >
+            <option value="work">Work</option>
+            <option value="mobile">Mobile</option>
+            <option value="home">Home</option>
+            <option value="fax">Fax</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="grid gap-2">
+        <Label htmlFor="secondary_phone">Secondary Phone</Label>
+        <div className="grid grid-cols-3 gap-2">
+          <PhoneInput
+            value={form.secondary_phone || ""}
+            onChange={(cleanedPhone) => setForm({ ...form, secondary_phone: cleanedPhone })}
+            placeholder="(123) 555-6789"
+            className="col-span-2"
+          />
+          <select
+            value={form.secondary_phone_label || "mobile"}
+            onChange={(e) => setForm({ ...form, secondary_phone_label: e.target.value as "work" | "mobile" })}
+            className="border border-input bg-background text-sm rounded-md px-2 py-1"
+          >
+            <option value="mobile">Mobile</option>
+            <option value="work">Work</option>
+            <option value="home">Home</option>
+            <option value="fax">Fax</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
 
       <div className="grid gap-2">
         <Label htmlFor="address">Address</Label>
