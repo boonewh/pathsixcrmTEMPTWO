@@ -26,6 +26,7 @@ interface CalendarEvent {
     secondary_phone?: string;
     secondary_phone_label?: "work" | "mobile";
     profile_link?: string;
+    entity_type?: string; // Add entity type for styling
   };
 }
 
@@ -33,43 +34,63 @@ export default function CalendarPage() {
   const { token } = useAuth();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "client" | "lead">("all");
+  const [filterType, setFilterType] = useState<"all" | "client" | "lead" | "project">("all"); // Add project option
   const [loading, setLoading] = useState(true);
   const calendarRef = useRef<FullCalendar>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
-      const res = await apiFetch("/interactions/?per_page=1000", { // Get all interactions for calendar
+      const res = await apiFetch("/interactions/", {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      const response = await res.json();
-      const data: Interaction[] = response.interactions || response; // 👈 Handle paginated response
-      const filtered = data.filter((i) => {
+      const data = await res.json();
+      // Handle both paginated response and direct array
+      const interactions: Interaction[] = data.interactions || data;
+      const filtered = interactions.filter((i) => {
         if (!i.follow_up) return false;
         if (filterType === "client") return !!i.client_id;
         if (filterType === "lead") return !!i.lead_id;
+        if (filterType === "project") return !!i.project_id; // Add project filtering
         return true;
       });
 
-      const eventList: CalendarEvent[] = filtered.map((i) => ({
-        id: i.id.toString(),
-        title: `${i.client_name || i.lead_name || "Unknown"}`,
-        start: i.follow_up!,
-        extendedProps: {
-          outcome: i.outcome,
-          notes: i.notes || "No notes",
-          contact_person: i.contact_person,
-          email: i.email,
-          phone: i.phone,
-          phone_label: i.phone_label,
-          secondary_phone: i.secondary_phone,
-          secondary_phone_label: i.secondary_phone_label,
-          profile_link: i.profile_link,
-          followup_status: i.followup_status,
-        },
-      }));
+      const eventList: CalendarEvent[] = filtered.map((i) => {
+        // Determine entity info for proper display
+        let entityName = "Unknown Entity";
+        let entityType = "unknown";
+        
+        if (i.client_name) {
+          entityName = i.client_name;
+          entityType = "client";
+        } else if (i.lead_name) {
+          entityName = i.lead_name;
+          entityType = "lead";
+        } else if (i.project_name) {
+          entityName = i.project_name;
+          entityType = "project";
+        }
+
+        return {
+          id: i.id.toString(),
+          title: entityName,
+          start: i.follow_up!,
+          extendedProps: {
+            outcome: i.outcome,
+            notes: i.notes || "No notes",
+            contact_person: i.contact_person,
+            email: i.email,
+            phone: i.phone,
+            phone_label: i.phone_label,
+            secondary_phone: i.secondary_phone,
+            secondary_phone_label: i.secondary_phone_label,
+            profile_link: i.profile_link,
+            followup_status: i.followup_status,
+            entity_type: entityType, // Store entity type for styling
+          },
+        };
+      });
 
       setEvents(eventList);
       setLoading(false);
@@ -81,22 +102,23 @@ export default function CalendarPage() {
   function handleEventClick(arg: any) {
     const { event } = arg;
 
-  const customEvent: CalendarEvent = {
-    id: event.id,
-    title: event.title,
-    start: event.start!,
-    extendedProps: {
-      outcome: event.extendedProps["outcome"],
-      notes: event.extendedProps["notes"],
-      contact_person: event.extendedProps["contact_person"],
-      email: event.extendedProps["email"],
-      phone: event.extendedProps["phone"],
-      phone_label: event.extendedProps["phone_label"],
-      secondary_phone: event.extendedProps["secondary_phone"],
-      secondary_phone_label: event.extendedProps["secondary_phone_label"],
-      profile_link: event.extendedProps["profile_link"],
-    },
-  };
+    const customEvent: CalendarEvent = {
+      id: event.id,
+      title: event.title,
+      start: event.start!,
+      extendedProps: {
+        outcome: event.extendedProps["outcome"],
+        notes: event.extendedProps["notes"],
+        contact_person: event.extendedProps["contact_person"],
+        email: event.extendedProps["email"],
+        phone: event.extendedProps["phone"],
+        phone_label: event.extendedProps["phone_label"],
+        secondary_phone: event.extendedProps["secondary_phone"],
+        secondary_phone_label: event.extendedProps["secondary_phone_label"],
+        profile_link: event.extendedProps["profile_link"],
+        entity_type: event.extendedProps["entity_type"],
+      },
+    };
     setSelectedEvent(customEvent);
   }
 
@@ -139,18 +161,30 @@ export default function CalendarPage() {
   function renderEventContent(arg: any) {
     const isOverdue = new Date(arg.event.start) < new Date();
     const isCompleted = arg.event.extendedProps.followup_status === "completed";
+    const entityType = arg.event.extendedProps.entity_type;
 
-    let style = "text-blue-600 font-semibold";
-    if (isCompleted) style = "text-green-600 font-semibold";
+    // Color coding by entity type
+    let style = "text-blue-600 font-semibold"; // Default for clients
+    if (entityType === "lead") {
+      style = "text-green-600 font-semibold";
+    } else if (entityType === "project") {
+      style = "text-orange-600 font-semibold";
+    }
+
+    // Override with status colors
+    if (isCompleted) style = "text-gray-500 font-semibold line-through";
     else if (isOverdue) style = "text-red-600 font-semibold";
 
     return (
       <div className={`${style} truncate max-w-full overflow-hidden whitespace-nowrap`}>
+        {/* Add entity type emoji */}
+        {entityType === "client" && "🏢 "}
+        {entityType === "lead" && "🎯 "}
+        {entityType === "project" && "🚧 "}
         {arg.event.title}
       </div>
     );
   }
-
 
   function handleDateClick(arg: any) {
     const calendarApi = calendarRef.current?.getApi() as Calendar;
@@ -169,13 +203,30 @@ export default function CalendarPage() {
         <label className="mr-2 font-semibold">Filter by:</label>
         <select
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value as "all" | "client" | "lead")}
+          onChange={(e) => setFilterType(e.target.value as "all" | "client" | "lead" | "project")}
           className="border rounded px-2 py-1"
         >
-          <option value="all">All</option>
+          <option value="all">All Entities</option>
           <option value="client">{USE_ACCOUNT_LABELS ? "Accounts Only" : "Clients Only"}</option>
           <option value="lead">Leads Only</option>
+          <option value="project">Projects Only</option>
         </select>
+      </div>
+
+      {/* Add legend for entity types */}
+      <div className="mb-4 flex gap-4 text-sm">
+        <div className="flex items-center gap-1">
+          <span className="text-blue-600">🏢</span>
+          <span>{USE_ACCOUNT_LABELS ? "Accounts" : "Clients"}</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-green-600">🎯</span>
+          <span>Leads</span>
+        </div>
+        <div className="flex items-center gap-1">
+          <span className="text-orange-600">🚧</span>
+          <span>Projects</span>
+        </div>
       </div>
 
       {loading ? (
@@ -211,7 +262,9 @@ export default function CalendarPage() {
       
       {selectedEvent && (
         <InteractionModal
-          title={selectedEvent.title}
+          title={`${selectedEvent.extendedProps.entity_type === "client" ? (USE_ACCOUNT_LABELS ? "Account" : "Client") : 
+                  selectedEvent.extendedProps.entity_type === "lead" ? "Lead" : 
+                  selectedEvent.extendedProps.entity_type === "project" ? "Project" : "Entity"} Follow-up: ${selectedEvent.title}`}
           date={new Date(selectedEvent.start).toLocaleString()}
           outcome={selectedEvent.extendedProps.outcome}
           notes={selectedEvent.extendedProps.notes}
