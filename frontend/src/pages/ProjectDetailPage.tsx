@@ -39,6 +39,7 @@ export default function ProjectDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
 
+  
   useEffect(() => {
     if (!id) return;
 
