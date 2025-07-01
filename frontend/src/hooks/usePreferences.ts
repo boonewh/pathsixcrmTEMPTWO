@@ -5,6 +5,7 @@ import { apiFetch } from '@/lib/api';
 interface PaginationPreferences {
   perPage: number;
   sort: 'newest' | 'oldest' | 'alphabetical';
+  viewMode: 'cards' | 'table';  // NEW: Add viewMode support
 }
 
 interface UserPreferences {
@@ -95,7 +96,7 @@ export function usePreferences() {
         ...prev,
         pagination: {
           ...prev.pagination,
-          [tableName]: previousPrefs || { perPage: 10, sort: 'newest' }
+          [tableName]: previousPrefs || { perPage: 10, sort: 'newest', viewMode: 'cards' }
         }
       } : null);
     }
@@ -103,7 +104,7 @@ export function usePreferences() {
 
   // Get pagination preferences for a specific table
   const getPaginationPrefs = useCallback((tableName: string): PaginationPreferences => {
-    const defaults = { perPage: 10, sort: 'newest' as const };
+    const defaults = { perPage: 10, sort: 'newest' as const, viewMode: 'cards' as const };
     return preferences?.pagination?.[tableName] || defaults;
   }, [preferences]);
 
@@ -132,10 +133,12 @@ export function usePagination(tableName: string) {
   return {
     perPage: prefs.perPage,
     sortOrder: prefs.sort,
+    viewMode: prefs.viewMode,  // NEW: Expose viewMode
     currentPage,
     setCurrentPage,
     updatePerPage: (perPage: number) => updatePrefs({ perPage }),
     updateSortOrder: (sort: 'newest' | 'oldest' | 'alphabetical') => updatePrefs({ sort }),
+    updateViewMode: (viewMode: 'cards' | 'table') => updatePrefs({ viewMode }),  // NEW: Add viewMode updater
     isLoading: loading,
   };
 }
