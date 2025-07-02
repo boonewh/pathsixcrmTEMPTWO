@@ -302,3 +302,5 @@ Confirm type is returned in API responses
 
 
 __________________________________________________________________________________________________
+
+Remember in Leads.tsx you have the option to add filters for "temperature" and "Source" to add spice to the leads. 

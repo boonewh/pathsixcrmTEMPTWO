@@ -12,7 +12,7 @@ TYPE_OPTIONS = [
 ]
 
 # Lead-specific statuses
-LEAD_STATUS_OPTIONS = ["open", "converted", "closed", "lost"]
+LEAD_STATUS_OPTIONS = ["open", "qualified", "proposal", "closed"]
 
 # Client statuses 
 CLIENT_STATUS_OPTIONS = ["new", "active", "inactive"]

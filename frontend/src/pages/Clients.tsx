@@ -1,16 +1,15 @@
 import { useEffect, useState } from "react";
 import EntityCard from "@/components/ui/EntityCard";
 import { useAuth, userHasRole } from "@/authContext";
-import { Mail, Phone, MapPin, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter } from "lucide-react";
+import { Mail, Phone, MapPin, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp } from "lucide-react";
 import { Link } from "react-router-dom";
 import CompanyForm from "@/components/ui/CompanyForm";
 import { Client } from "@/types";
 import { apiFetch } from "@/lib/api";
-import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
 import { useStatusFilter } from "@/hooks/useStatusFilter";
+import { useSorting, legacySortToUnified, unifiedToLegacySort } from "@/hooks/useSorting";
 import StatusTabs from "@/components/ui/StatusTabs";
-import ClientsTable from "@/components/ui/ClientsTable";
 import { formatPhoneNumber } from "@/lib/phoneUtils";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
@@ -18,39 +17,187 @@ const USE_ACCOUNT_LABELS = true;
 
 // Account type options for filtering
 const ACCOUNT_TYPE_OPTIONS = [
-  'Oil & Gas', 'Secondary Containment', 'Tanks', 'Pipe', 
+  'None', 'Oil & Gas', 'Secondary Containment', 'Tanks', 'Pipe', 
   'Rental', 'Food and Beverage', 'Bridge', 'Culvert'
 ] as const;
 
-// Activity filter options
-const ACTIVITY_FILTER_OPTIONS = [
-  { value: 'all', label: 'All Activity' },
-  { value: 'active', label: 'Active (30 days)' },
-  { value: 'inactive', label: 'Inactive (90+ days)' },
-  { value: 'new', label: 'New (7 days)' }
-] as const;
-
-// Get sort options based on view mode
-const getSortOptions = (viewMode: 'cards' | 'table') => {
-  const base = [
-    { value: 'newest', label: 'Newest first' },
-    { value: 'oldest', label: 'Oldest first' },
-    { value: 'alphabetical', label: 'A-Z' },
-  ];
-
-  if (viewMode === 'cards') {
-    base.push({ value: 'activity', label: 'By Activity' });
-  }
-
-  return base;
+// Smart default for filter visibility based on screen size
+const getDefaultFilterVisibility = () => {
+  if (typeof window === 'undefined') return true; // SSR fallback
+  return window.innerWidth >= 1024; // lg breakpoint
 };
+
+// Table component for proper data table view
+function ClientsTable({ 
+  clients, 
+  onEdit, 
+  onDelete,
+  sortField,
+  sortDirection,
+  onSort,
+  getSortIcon
+}: {
+  clients: Client[];
+  onEdit: (client: Client) => void;
+  onDelete: (id: number) => void;
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
+  onSort: (field: string) => void;
+  getSortIcon: (field: string) => string;
+}) {
+  const handleDelete = (client: Client) => {
+    if (confirm(`Are you sure you want to delete "${client.name}"?`)) {
+      onDelete(client.id);
+    }
+  };
+
+  return (
+    <div className="overflow-x-auto bg-white rounded-lg shadow border">
+      <table className="min-w-full">
+        <thead className="bg-gray-50">
+          <tr>
+            <th 
+              className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+              onClick={() => onSort('name')}
+            >
+              {USE_ACCOUNT_LABELS ? 'Account' : 'Client'} Name <span className="ml-1">{getSortIcon('name')}</span>
+            </th>
+            <th 
+              className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+              onClick={() => onSort('contact_person')}
+            >
+              Contact <span className="ml-1">{getSortIcon('contact_person')}</span>
+            </th>
+            <th 
+              className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+              onClick={() => onSort('type')}
+            >
+              Type <span className="ml-1">{getSortIcon('type')}</span>
+            </th>
+            <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
+              Contact Info
+            </th>
+            <th 
+              className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
+              onClick={() => onSort('created_at')}
+            >
+              Created <span className="ml-1">{getSortIcon('created_at')}</span>
+            </th>
+            <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
+              Actions
+            </th>
+          </tr>
+        </thead>
+        <tbody className="bg-white divide-y divide-gray-200">
+          {clients.map((client) => (
+            <tr key={client.id} className="hover:bg-gray-50">
+              <td className="px-4 py-3">
+                <div className="font-medium text-gray-900">
+                  <Link
+                    to={`/clients/${client.id}`}
+                    className="text-blue-600 hover:underline"
+                  >
+                    {client.name}
+                  </Link>
+                </div>
+                {client.address && (
+                  <div className="text-sm text-gray-500 truncate max-w-xs">
+                    {client.city && client.state ? `${client.city}, ${client.state}` : client.address}
+                  </div>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                <div>
+                  {client.contact_person && (
+                    <div className="font-medium text-gray-900">{client.contact_person}</div>
+                  )}
+                  {client.contact_title && (
+                    <div className="text-sm text-gray-500">{client.contact_title}</div>
+                  )}
+                  {!client.contact_person && !client.contact_title && (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-600">
+                {client.type || '—'}
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-600">
+                <div className="space-y-1">
+                  {client.email && (
+                    <div>
+                      <a href={`mailto:${client.email}`} className="text-blue-600 hover:underline">
+                        {client.email}
+                      </a>
+                    </div>
+                  )}
+                  {client.phone && (
+                    <div>
+                      <a href={`tel:${client.phone}`} className="text-blue-600 hover:underline">
+                        {formatPhoneNumber(client.phone)}
+                      </a>
+                      {client.phone_label && (
+                        <span className="text-gray-500 text-xs ml-1">({client.phone_label})</span>
+                      )}
+                    </div>
+                  )}
+                  {client.secondary_phone && (
+                    <div>
+                      <a href={`tel:${client.secondary_phone}`} className="text-blue-600 hover:underline">
+                        {formatPhoneNumber(client.secondary_phone)}
+                      </a>
+                      {client.secondary_phone_label && (
+                        <span className="text-gray-500 text-xs ml-1">({client.secondary_phone_label})</span>
+                      )}
+                    </div>
+                  )}
+                  {!client.email && !client.phone && !client.secondary_phone && (
+                    <span className="text-gray-400">—</span>
+                  )}
+                </div>
+              </td>
+              <td className="px-4 py-3 text-sm text-gray-600">
+                {client.created_at ? new Date(client.created_at).toLocaleDateString() : '—'}
+              </td>
+              <td className="px-4 py-3 text-right">
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => onEdit(client)}
+                    className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
+                    title={`Edit ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    onClick={() => handleDelete(client)}
+                    className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
+                    title={`Delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      
+      {clients.length === 0 && (
+        <div className="text-center py-8 text-gray-500">
+          <p>No {USE_ACCOUNT_LABELS ? 'accounts' : 'clients'} found.</p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function Clients() {
   const [clients, setClients] = useState<Client[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showEditModal, setShowEditModal] = useState(false);
 
-  // Use pagination hook with view mode support
+  // Use pagination hook
   const {
     perPage,
     sortOrder,
@@ -62,16 +209,33 @@ export default function Clients() {
     updateViewMode,
   } = usePagination('clients');
 
+  // Initialize unified sorting from pagination preferences
+  const initialSort = legacySortToUnified(sortOrder, 'clients');
+  
+  const {
+    sortField,
+    sortDirection,
+    handleSort,
+    getSortIcon,
+    sortData,
+    cardSortOptions,
+    currentCardValue,
+    setCardSort
+  } = useSorting({
+    entityType: 'clients',
+    initialSort,
+    onSortChange: (field, direction) => {
+      // Update pagination preferences when sort changes
+      const legacySort = unifiedToLegacySort(field, direction, 'clients');
+      updateSortOrder(legacySort);
+    }
+  });
+
   // Type filter (preserves user's filter choice)
   const { statusFilter: typeFilter, setStatusFilter: setTypeFilter } = useStatusFilter('clients_type');
 
-  // Activity filter state (temporary, resets each session)
-  const [activityFilter, setActivityFilter] = useState<string>('all');
-  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
-
-  // Table sorting state (for table view only)
-  const [tableSortField, setTableSortField] = useState('name');
-  const [tableSortDirection, setTableSortDirection] = useState<'asc' | 'desc'>('asc');
+  // Smart filter visibility - default open on desktop, closed on mobile
+  const [showFilters, setShowFilters] = useState<boolean>(getDefaultFilterVisibility());
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
@@ -97,6 +261,22 @@ export default function Clients() {
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [availableUsers, setAvailableUsers] = useState<{ id: number; email: string }[]>([]);
+
+  // Update filter visibility on window resize
+  useEffect(() => {
+    const handleResize = () => {
+      // Only auto-adjust if user hasn't manually toggled filters
+      const isLargeScreen = window.innerWidth >= 1024;
+      if (isLargeScreen && !showFilters) {
+        // Don't auto-open if user explicitly closed them
+      } else if (!isLargeScreen && showFilters) {
+        // Don't auto-close if user explicitly opened them
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [showFilters]);
 
   useEffect(() => {
     const fetchClients = async () => {
@@ -127,91 +307,24 @@ export default function Clients() {
     }
   }, [token, currentPage, perPage, sortOrder]);
 
-  // Advanced filtering logic
+  // Filter logic - only type filter now
   const filteredClients = clients.filter(client => {
     // Type filter
     if (typeFilter !== 'all' && client.type !== typeFilter) return false;
-    
-    // Activity filter (placeholder logic - will need backend support)
-    if (activityFilter === 'new') {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      const createdDate = new Date(client.created_at);
-      if (createdDate < sevenDaysAgo) return false;
-    }
-    // TODO: Implement 'active' and 'inactive' filters when backend provides interaction data
-    
     return true;
   });
 
-  // Smart sorting based on view mode
-  const sortedClients = viewMode === 'table' ? 
-    // Table view: use table-specific sorting
-    [...filteredClients].sort((a, b) => {
-      let aVal: any = '';
-      let bVal: any = '';
-      
-      switch (tableSortField) {
-        case 'name':
-          aVal = a.name || '';
-          bVal = b.name || '';
-          break;
-        case 'contact_person':
-          aVal = a.contact_person || '';
-          bVal = b.contact_person || '';
-          break;
-        case 'type':
-          aVal = a.type || '';
-          bVal = b.type || '';
-          break;
-        case 'created_at':
-          aVal = a.created_at || '';
-          bVal = b.created_at || '';
-          break;
-        default:
-          return 0;
-      }
-      
-      if (tableSortDirection === 'asc') {
-        return aVal.localeCompare(bVal);
-      } else {
-        return bVal.localeCompare(aVal);
-      }
-    }) :
-    // Card view: use dropdown sorting
-    (() => {
-      const sorted = [...filteredClients];
-      switch (sortOrder) {
-        case 'newest':
-          return sorted.sort((a, b) => new Date(b.created_at || '').getTime() - new Date(a.created_at || '').getTime());
-        case 'oldest':
-          return sorted.sort((a, b) => new Date(a.created_at || '').getTime() - new Date(b.created_at || '').getTime());
-        case 'alphabetical':
-          return sorted.sort((a, b) => a.name.localeCompare(b.name));
-        // case 'activity':
-        //   // TODO: Sort by last interaction date when backend provides it
-        //   return sorted;
-        default:
-          return sorted;
-      }
-    })();
+  // Apply unified sorting to filtered data
+  const sortedClients = sortData(filteredClients);
 
-  const handleTableSort = (field: string) => {
-    if (tableSortField === field) {
-      setTableSortDirection(tableSortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setTableSortField(field);
-      setTableSortDirection('asc');
-    }
-  };
-
-  const handleEdit = (client: Client) => {
-    setEditingId(client.id);
+  const handleTableEdit = (client: Client) => {
     setForm({
       ...client,
       phone_label: client.phone_label || "work",
       secondary_phone_label: client.secondary_phone_label || "mobile",
     });
+    setEditingId(client.id);
+    setShowEditModal(true);
   };
 
   const handleDelete = async (id: number) => {
@@ -224,6 +337,7 @@ export default function Clients() {
 
     if (res.ok) {
       setClients((prev) => prev.filter((c) => c.id !== id));
+      setTotal((prev) => prev - 1);
     } else {
       alert(`Failed to delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`);
     }
@@ -274,30 +388,41 @@ export default function Clients() {
     });
   };
 
-  // Clear all filters
+  // Clear all filters - now only handles type filter
   const clearAllFilters = () => {
     setTypeFilter('all');
-    setActivityFilter('all');
   };
 
-  const activeFiltersCount = [typeFilter, activityFilter].filter(f => f !== 'all').length;
+  const activeFiltersCount = typeFilter !== 'all' ? 1 : 0;
 
   return (
-    <div className="p-6">
-      <div className="flex justify-between items-center mb-6">
+    <div className="p-4 lg:p-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold">
           {USE_ACCOUNT_LABELS ? "Accounts" : "Clients"}
         </h1>
-        <div className="flex gap-2">
+        <div className="flex gap-2 w-full sm:w-auto">
+          {/* Filters Toggle Button */}
           <button
-            onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-            className={`flex items-center gap-2 px-4 py-2 rounded hover:bg-gray-100 transition-colors ${
-              activeFiltersCount > 0 ? 'bg-blue-50 text-blue-700 border border-blue-200' : 'bg-gray-100'
+            onClick={() => setShowFilters(!showFilters)}
+            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors flex-1 sm:flex-none justify-center ${
+              activeFiltersCount > 0 
+                ? 'bg-blue-50 text-blue-700 border-blue-200' 
+                : 'bg-white border-gray-300 hover:bg-gray-50'
             }`}
           >
             <Filter size={16} />
-            Filters {activeFiltersCount > 0 && `(${activeFiltersCount})`}
+            <span className="hidden sm:inline">Filters</span>
+            {showFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            {activeFiltersCount > 0 && (
+              <span className="bg-blue-600 text-white rounded-full px-1.5 py-0.5 text-xs min-w-[20px] text-center">
+                {activeFiltersCount}
+              </span>
+            )}
           </button>
+
+          {/* New Account Button */}
           <button
             onClick={() => {
               setCreating(true);
@@ -318,37 +443,104 @@ export default function Clients() {
                 type: "None",
               });
             }}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 whitespace-nowrap"
           >
             <Plus size={16} />
-            {`New ${USE_ACCOUNT_LABELS ? "Account" : "Client"}`}
+            <span className="hidden sm:inline">New {USE_ACCOUNT_LABELS ? "Account" : "Client"}</span>
+            <span className="sm:hidden">New</span>
           </button>
         </div>
       </div>
 
       {error && <p className="text-red-500 mb-4">{error}</p>}
 
-      {/* Advanced Filters Panel */}
-      {showAdvancedFilters && (
-        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-          <div className="flex flex-wrap gap-4 items-center">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Activity</label>
+      {/* Collapsible Filters Panel */}
+      {showFilters && (
+        <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6 space-y-4">
+          {/* View Mode + Type Filters */}
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            {/* Left: View Mode + Type Filters */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
+              {/* View Toggle */}
+              <div className="flex bg-white rounded-lg p-1 border">
+                <button 
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                    viewMode === 'cards' 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                  onClick={() => updateViewMode('cards')}
+                >
+                  <LayoutGrid size={16} />
+                  Cards
+                </button>
+                <button 
+                  className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                    viewMode === 'table' 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'text-gray-600 hover:text-gray-800'
+                  }`}
+                  onClick={() => updateViewMode('table')}
+                >
+                  <List size={16} />
+                  Table
+                </button>
+              </div>
+
+              {/* Type Tabs */}
+              <StatusTabs 
+                statusFilter={typeFilter} 
+                setStatusFilter={setTypeFilter}
+                items={clients}
+                statusField="type"
+                statusOptions={ACCOUNT_TYPE_OPTIONS}
+              />
+            </div>
+          </div>
+
+          {/* Sort + Per Page Controls */}
+          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+            {/* Sort Control - different for cards vs tables */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Sort:</label>
+              {viewMode === 'cards' ? (
+                <select 
+                  value={currentCardValue} 
+                  onChange={(e) => setCardSort(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-1 text-sm bg-white"
+                >
+                  {cardSortOptions.map(option => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm text-gray-600">
+                  Click table headers to sort
+                </span>
+              )}
+            </div>
+
+            {/* Per Page Control */}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Per page:</label>
               <select 
-                value={activityFilter} 
-                onChange={(e) => setActivityFilter(e.target.value)}
-                className="border border-gray-300 rounded px-3 py-1 text-sm bg-white"
+                value={perPage} 
+                onChange={(e) => updatePerPage(Number(e.target.value))}
+                className="border border-gray-300 rounded-lg px-3 py-1 text-sm bg-white w-20"
               >
-                {ACTIVITY_FILTER_OPTIONS.map(option => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
               </select>
             </div>
 
             {activeFiltersCount > 0 && (
               <button
                 onClick={clearAllFilters}
-                className="text-sm text-gray-600 hover:text-gray-800 underline"
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
               >
                 Clear all filters
               </button>
@@ -357,81 +549,11 @@ export default function Clients() {
         </div>
       )}
 
-      {/* Main Controls */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        {/* Left: View Mode + Type Filters */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          {/* View Toggle */}
-          <div className="flex bg-gray-100 rounded-lg p-1">
-            <button 
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                viewMode === 'cards' 
-                  ? 'bg-white shadow-sm text-blue-600 border border-gray-200' 
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-              onClick={() => updateViewMode('cards')}
-            >
-              <LayoutGrid size={16} />
-              Cards
-            </button>
-            <button 
-              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
-                viewMode === 'table' 
-                  ? 'bg-white shadow-sm text-blue-600 border border-gray-200' 
-                  : 'text-gray-600 hover:text-gray-800'
-              }`}
-              onClick={() => updateViewMode('table')}
-            >
-              <List size={16} />
-              Table
-            </button>
-          </div>
-
-          {/* Type Tabs */}
-          <StatusTabs 
-            statusFilter={typeFilter} 
-            setStatusFilter={setTypeFilter}
-            items={clients}
-            statusField="type"
-            statusOptions={ACCOUNT_TYPE_OPTIONS}
-          />
-        </div>
-
-        {/* Right: Sort Control (cards only) */}
-        {viewMode === 'cards' && (
-          <select 
-            value={sortOrder} 
-            onChange={(e) => updateSortOrder(e.target.value as any)}
-            className="border border-gray-300 rounded-lg px-3 py-2 bg-white focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          >
-            {getSortOptions(viewMode).map(option => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-
       {/* Results Summary */}
       <div className="mb-4 text-sm text-gray-600">
-        Showing {sortedClients.length} of {clients.length} {USE_ACCOUNT_LABELS ? 'accounts' : 'clients'}
-        {typeFilter !== 'all' && ` with type "${typeFilter}"`}
-        {activeFiltersCount > 1 && ` (${activeFiltersCount} filters active)`}
+        <span className="font-medium">{sortedClients.length}</span> of {clients.length} {USE_ACCOUNT_LABELS ? 'accounts' : 'clients'}
+        {typeFilter !== 'all' && <span className="text-blue-600"> • {typeFilter}</span>}
       </div>
-
-      {/* Pagination Controls at top */}
-      <PaginationControls
-        currentPage={currentPage}
-        perPage={perPage}
-        total={filteredClients.length}
-        sortOrder={sortOrder}
-        onPageChange={setCurrentPage}
-        onPerPageChange={updatePerPage}
-        onSortOrderChange={updateSortOrder}
-        entityName={USE_ACCOUNT_LABELS ? "accounts" : "clients"}
-        className="border-b pb-4 mb-6"
-      />
 
       {/* Content */}
       {loading ? (
@@ -458,119 +580,118 @@ export default function Clients() {
           {viewMode === 'cards' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {sortedClients.map((client) => (
-                <div key={client.id} className="w-full">
-                  <EntityCard
-                    title={
-                      <span className="block">
-                        <Link
-                          to={`/clients/${client.id}`}
-                          className="hover:underline font-medium text-base block"
-                        >
-                          {client.name}
-                        </Link>
-                        <span className="flex items-center gap-2 text-sm text-gray-600 mt-1">
-                          <Wrench size={14} className="text-gray-500" />
-                          <span className="text-gray-500 font-medium">Type:</span>{" "}
-                          {client.type || "None"}
-                        </span>
-                      </span>
-                    }
-                    editing={editingId === client.id}
-                    onEdit={() => handleEdit(client)}
-                    onSave={handleSave}
-                    onCancel={handleCancel}
-                    onDelete={() => handleDelete(client.id)}
-                    editForm={<CompanyForm form={form} setForm={setForm} />}
-                    details={
-                      <ul className="text-sm text-gray-600 space-y-1">
-                        {client.contact_person && (
-                          <li className="flex items-start gap-2">
-                            <User size={14} className="mt-[2px]" />
-                            <div className="leading-tight">
-                              <div>{client.contact_person}</div>
-                              {client.contact_title && (
-                                <div className="text-gray-500 text-sm italic">{client.contact_title}</div>
-                              )}
-                            </div>
-                          </li>
-                        )}
-                        {client.email && (
-                          <li className="flex items-center gap-2">
-                            <Mail size={14} /> {client.email}
-                          </li>
-                        )}
-                        {client.phone && (
-                          <li className="flex items-center gap-2">
-                            <Phone size={14} />
-                            <span>
-                              <a href={`tel:${client.phone}`} className="text-blue-600 hover:underline">
+                <EntityCard
+                  key={client.id}
+                  title={
+                    <Link
+                      to={`/clients/${client.id}`}
+                      className="hover:underline font-medium text-base block"
+                    >
+                      {client.name}
+                    </Link>
+                  }
+                  typeLabel={client.type || "None"}
+                  editing={editingId === client.id}
+                  onEdit={() => handleTableEdit(client)}
+                  onSave={handleSave}
+                  onCancel={handleCancel}
+                  onDelete={() => handleDelete(client.id)}
+                  editForm={<CompanyForm form={form} setForm={setForm} />}
+                  details={
+                    <ul className="text-sm text-gray-600 space-y-2">
+                      {client.contact_person && (
+                        <li className="flex items-start gap-2">
+                          <User size={14} className="mt-[2px] flex-shrink-0" />
+                          <div className="leading-tight">
+                            <div>{client.contact_person}</div>
+                            {client.contact_title && (
+                              <div className="text-gray-500 text-sm italic">{client.contact_title}</div>
+                            )}
+                          </div>
+                        </li>
+                      )}
+                      {client.email && (
+                        <li className="flex items-start gap-2">
+                          <Mail size={14} className="mt-[2px] flex-shrink-0" />
+                          <a href={`mailto:${client.email}`} className="text-blue-600 underline break-all">
+                            {client.email}
+                          </a>
+                        </li>
+                      )}
+                      {client.phone && (
+                        <li className="flex items-start gap-2">
+                          <Phone size={14} className="mt-[2px] flex-shrink-0" />
+                          <div className="leading-tight">
+                            <div>
+                              <a href={`tel:${client.phone}`} className="text-blue-600 underline">
                                 {formatPhoneNumber(client.phone)}
                               </a>
                               {client.phone_label && (
-                                <span className="text-muted-foreground text-sm"> ({client.phone_label})</span>
+                                <span className="text-muted-foreground text-sm ml-1">
+                                  ({client.phone_label})
+                                </span>
                               )}
-                            </span>
-                          </li>
-                        )}
-
-                        {client.secondary_phone && (
-                          <li className="flex items-center gap-2 ml-[22px]">
-                            {/* indentation to align under phone icon */}
-                            <span>
-                              <a href={`tel:${client.secondary_phone}`} className="text-blue-600 hover:underline">
-                                {formatPhoneNumber(client.secondary_phone)}
-                              </a>
-                              {client.secondary_phone_label && (
-                                <span className="text-muted-foreground text-sm"> ({client.secondary_phone_label})</span>
-                              )}
-                            </span>
-                          </li>
-                        )}
-                        {(client.address || client.city || client.state || client.zip) && (
-                          <li className="flex items-start gap-2">
-                            <MapPin size={14} className="mt-[2px]" />
-                            <div className="leading-tight">
-                              {client.address && <div>{client.address}</div>}
-                              <div>
-                                {[client.city, client.state].filter(Boolean).join(", ")}
-                                {client.zip ? ` ${client.zip}` : ""}
-                              </div>
                             </div>
-                          </li>
-                        )}
-                        {client.notes && (
-                          <li className="flex items-start gap-2">
-                            <StickyNote size={14} className="mt-[2px]" />{" "}
-                            <div>{client.notes}</div>
-                          </li>
-                        )}
-                      </ul>
-                    }
-                    extraMenuItems={
-                      userHasRole(user, "admin") ? (
-                        <button
-                          className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100"
-                          onClick={() => {
-                            setSelectedClientId(client.id);
-                            setShowAssignModal(true);
-                          }}
-                        >
-                          Assign
-                        </button>
-                      ) : null
-                    }
-                  />
-                </div>
+                            {client.secondary_phone && (
+                              <div>
+                                <a href={`tel:${client.secondary_phone}`} className="text-blue-600 underline">
+                                  {formatPhoneNumber(client.secondary_phone)}
+                                </a>
+                                {client.secondary_phone_label && (
+                                  <span className="text-muted-foreground text-sm ml-1">
+                                    ({client.secondary_phone_label})
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </li>
+                      )}
+                      {(client.address || client.city || client.state || client.zip) && (
+                        <li className="flex items-start gap-2">
+                          <MapPin size={14} className="mt-[2px] flex-shrink-0" />
+                          <div className="leading-tight">
+                            {client.address && <div>{client.address}</div>}
+                            <div>
+                              {[client.city, client.state].filter(Boolean).join(", ")}
+                              {client.zip ? ` ${client.zip}` : ""}
+                            </div>
+                          </div>
+                        </li>
+                      )}
+                      {client.notes && (
+                        <li className="flex items-start gap-2">
+                          <StickyNote size={14} className="mt-[2px] flex-shrink-0" />
+                          <div className="break-words">{client.notes}</div>
+                        </li>
+                      )}
+                    </ul>
+                  }
+                  extraMenuItems={
+                    userHasRole(user, "admin") ? (
+                      <button
+                        className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100"
+                        onClick={() => {
+                          setSelectedClientId(client.id);
+                          setShowAssignModal(true);
+                        }}
+                      >
+                        Assign
+                      </button>
+                    ) : null
+                  }
+                />
               ))}
             </div>
           ) : (
             <ClientsTable
-              accounts={sortedClients}
-              onEdit={handleEdit}
+              clients={sortedClients}
+              onEdit={handleTableEdit}
               onDelete={handleDelete}
-              sortField={tableSortField}
-              sortDirection={tableSortDirection}
-              onSort={handleTableSort}
+              sortField={sortField}
+              sortDirection={sortDirection}
+              onSort={handleSort}
+              getSortIcon={getSortIcon}
             />
           )}
 
@@ -599,23 +720,45 @@ export default function Clients() {
         </div>
       )}
 
-      {/* Pagination Controls at bottom */}
-      <PaginationControls
-        currentPage={currentPage}
-        perPage={perPage}
-        total={filteredClients.length}
-        sortOrder={sortOrder}
-        onPageChange={setCurrentPage}
-        onPerPageChange={updatePerPage}
-        onSortOrderChange={updateSortOrder}
-        entityName={USE_ACCOUNT_LABELS ? "accounts" : "clients"}
-        className="border-t pt-4 mt-6"
-      />
+      {/* Only show pagination at bottom when there are multiple pages */}
+      {filteredClients.length > perPage && (
+        <div className="mt-6 pt-4 border-t border-gray-200">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            {/* Simple pagination info */}
+            <span className="text-sm text-gray-600">
+              Showing {((currentPage - 1) * perPage) + 1}-{Math.min(currentPage * perPage, filteredClients.length)} of {filteredClients.length}
+            </span>
+
+            {/* Page navigation */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Previous
+              </button>
+
+              <span className="text-sm text-gray-600 px-2">
+                Page {currentPage} of {Math.ceil(filteredClients.length / perPage)}
+              </span>
+
+              <button
+                onClick={() => setCurrentPage(Math.min(currentPage + 1, Math.ceil(filteredClients.length / perPage)))}
+                disabled={currentPage === Math.ceil(filteredClients.length / perPage)}
+                className="px-3 py-1 bg-gray-300 text-gray-700 rounded hover:bg-gray-400 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Assignment Modal */}
       {showAssignModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded shadow-md max-w-md w-full">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
             <h2 className="text-lg font-semibold mb-4">Assign {USE_ACCOUNT_LABELS ? "Account" : "Client"}</h2>
 
             <select
@@ -631,14 +774,14 @@ export default function Clients() {
               ))}
             </select>
 
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col sm:flex-row justify-end gap-2">
               <button
                 onClick={() => {
                   setShowAssignModal(false);
                   setSelectedUserId(null);
                   setSelectedClientId(null);
                 }}
-                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+                className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 order-2 sm:order-1"
               >
                 Cancel
               </button>
@@ -668,10 +811,57 @@ export default function Clients() {
                     alert(`Failed to assign ${USE_ACCOUNT_LABELS ? 'account' : 'client'}.`);
                   }
                 }}
-                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 order-1 sm:order-2"
               >
                 Assign
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-semibold">
+                  Edit {USE_ACCOUNT_LABELS ? "Account" : "Client"}
+                </h2>
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingId(null);
+                    handleCancel();
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              <CompanyForm form={form} setForm={setForm} />
+              
+              <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
+                <button
+                  onClick={() => {
+                    setShowEditModal(false);
+                    handleCancel();
+                  }}
+                  className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={async () => {
+                    await handleSave();
+                    setShowEditModal(false);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Save Changes
+                </button>
+              </div>
             </div>
           </div>
         </div>

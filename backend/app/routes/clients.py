@@ -1,12 +1,12 @@
 from quart import Blueprint, request, jsonify
-from datetime import datetime
-from app.models import Client, ActivityLog, ActivityType, User
+from datetime import datetime, timedelta
+from app.models import Client, ActivityLog, ActivityType, User, Interaction
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.utils.email_utils import send_assignment_notification
 from app.utils.phone_utils import clean_phone_number
 from app.constants import TYPE_OPTIONS, PHONE_LABELS
-from sqlalchemy import or_, and_
+from sqlalchemy import or_, and_, func, desc
 from sqlalchemy.orm import joinedload
 
 clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
@@ -20,11 +20,13 @@ async def list_clients():
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("per_page", 20))
         sort_order = request.args.get("sort", "newest")
+        activity_filter = request.args.get("activity_filter", "all")  # NEW: Activity filter
         
         # Validate sort order
-        if sort_order not in ["newest", "oldest", "alphabetical"]:
+        if sort_order not in ["newest", "oldest", "alphabetical", "activity"]:
             sort_order = "newest"
 
+        # Base query with interaction data
         query = session.query(Client).options(
             joinedload(Client.assigned_user),
             joinedload(Client.created_by_user)
@@ -40,6 +42,33 @@ async def list_clients():
             )
         )
 
+        # Apply activity filtering
+        if activity_filter == "active":
+            # Clients with interactions in last 30 days
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            query = query.join(Interaction, Client.id == Interaction.client_id).filter(
+                Interaction.contact_date >= thirty_days_ago
+            ).distinct()
+        elif activity_filter == "inactive":
+            # Clients with no interactions in last 90 days OR no interactions at all
+            ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+            
+            # Subquery for clients with recent interactions
+            recent_interaction_clients = session.query(Interaction.client_id).filter(
+                Interaction.client_id != None,
+                Interaction.contact_date >= ninety_days_ago
+            ).distinct().subquery()
+            
+            # Exclude clients with recent interactions
+            query = query.outerjoin(
+                recent_interaction_clients, 
+                Client.id == recent_interaction_clients.c.client_id
+            ).filter(recent_interaction_clients.c.client_id == None)
+        elif activity_filter == "new":
+            # Clients created in last 7 days
+            seven_days_ago = datetime.utcnow() - timedelta(days=7)
+            query = query.filter(Client.created_at >= seven_days_ago)
+
         # Apply sorting
         if sort_order == "newest":
             query = query.order_by(Client.created_at.desc())
@@ -47,9 +76,34 @@ async def list_clients():
             query = query.order_by(Client.created_at.asc())
         elif sort_order == "alphabetical":
             query = query.order_by(Client.name.asc())
+        elif sort_order == "activity":
+            # Sort by most recent interaction date
+            query = query.outerjoin(Interaction, Client.id == Interaction.client_id)\
+                         .group_by(Client.id)\
+                         .order_by(desc(func.max(Interaction.contact_date)))
 
         total = query.count()
         clients = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        # Get interaction statistics for each client
+        client_ids = [c.id for c in clients]
+        interaction_stats = {}
+        
+        if client_ids:
+            # Get interaction counts and last interaction dates
+            interaction_data = session.query(
+                Interaction.client_id,
+                func.count(Interaction.id).label('interaction_count'),
+                func.max(Interaction.contact_date).label('last_interaction_date')
+            ).filter(
+                Interaction.client_id.in_(client_ids)
+            ).group_by(Interaction.client_id).all()
+            
+            for data in interaction_data:
+                interaction_stats[data.client_id] = {
+                    'interaction_count': data.interaction_count,
+                    'last_interaction_date': data.last_interaction_date.isoformat() + "Z" if data.last_interaction_date else None
+                }
 
         response = jsonify({
             "clients": [{
@@ -75,11 +129,15 @@ async def list_clients():
                     else c.created_by_user.email if c.created_by_user
                     else None
                 ),
+                # NEW: Interaction statistics
+                "interaction_count": interaction_stats.get(c.id, {}).get('interaction_count', 0),
+                "last_interaction_date": interaction_stats.get(c.id, {}).get('last_interaction_date'),
             } for c in clients],
             "total": total,
             "page": page,
             "per_page": per_page,
-            "sort_order": sort_order
+            "sort_order": sort_order,
+            "activity_filter": activity_filter  # NEW: Include filter in response
         })
         response.headers["Cache-Control"] = "no-store"
         return response
@@ -108,7 +166,7 @@ async def create_client():
             phone=clean_phone_number(data.get("phone")) if data.get("phone") else None,
             phone_label=data.get("phone_label", PHONE_LABELS[0]),
             secondary_phone=clean_phone_number(data.get("secondary_phone")) if data.get("secondary_phone") else None,
-            secondary_phone_label=data.get("secondary_phone_label", PHONE_LABELS[1]),
+            secondary_phone_label=data.get("secondary_phone_label"),
             address=data.get("address"),
             city=data.get("city"),
             state=data.get("state"),
@@ -311,9 +369,10 @@ async def list_all_clients():
         per_page = int(request.args.get("per_page", 20))
         sort_order = request.args.get("sort", "newest")
         user_email = request.args.get("user_email")  # Filter by specific user
+        activity_filter = request.args.get("activity_filter", "all")  # NEW: Activity filter
         
         # Validate sort order
-        if sort_order not in ["newest", "oldest", "alphabetical"]:
+        if sort_order not in ["newest", "oldest", "alphabetical", "activity"]:
             sort_order = "newest"
 
         query = session.query(Client).options(
@@ -333,6 +392,26 @@ async def list_all_clients():
                 )
             )
 
+        # Apply activity filtering (same logic as main list)
+        if activity_filter == "active":
+            thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+            query = query.join(Interaction, Client.id == Interaction.client_id).filter(
+                Interaction.contact_date >= thirty_days_ago
+            ).distinct()
+        elif activity_filter == "inactive":
+            ninety_days_ago = datetime.utcnow() - timedelta(days=90)
+            recent_interaction_clients = session.query(Interaction.client_id).filter(
+                Interaction.client_id != None,
+                Interaction.contact_date >= ninety_days_ago
+            ).distinct().subquery()
+            query = query.outerjoin(
+                recent_interaction_clients, 
+                Client.id == recent_interaction_clients.c.client_id
+            ).filter(recent_interaction_clients.c.client_id == None)
+        elif activity_filter == "new":
+            seven_days_ago = datetime.utcnow() - timedelta(days=7)
+            query = query.filter(Client.created_at >= seven_days_ago)
+
         # Apply sorting
         if sort_order == "newest":
             query = query.order_by(Client.created_at.desc())
@@ -340,9 +419,32 @@ async def list_all_clients():
             query = query.order_by(Client.created_at.asc())
         elif sort_order == "alphabetical":
             query = query.order_by(Client.name.asc())
+        elif sort_order == "activity":
+            query = query.outerjoin(Interaction, Client.id == Interaction.client_id)\
+                         .group_by(Client.id)\
+                         .order_by(desc(func.max(Interaction.contact_date)))
 
         total = query.count()
         clients = query.offset((page - 1) * per_page).limit(per_page).all()
+
+        # Get interaction statistics
+        client_ids = [c.id for c in clients]
+        interaction_stats = {}
+        
+        if client_ids:
+            interaction_data = session.query(
+                Interaction.client_id,
+                func.count(Interaction.id).label('interaction_count'),
+                func.max(Interaction.contact_date).label('last_interaction_date')
+            ).filter(
+                Interaction.client_id.in_(client_ids)
+            ).group_by(Interaction.client_id).all()
+            
+            for data in interaction_data:
+                interaction_stats[data.client_id] = {
+                    'interaction_count': data.interaction_count,
+                    'last_interaction_date': data.last_interaction_date.isoformat() + "Z" if data.last_interaction_date else None
+                }
 
         response_data = {
             "clients": [
@@ -365,13 +467,17 @@ async def list_all_clients():
                         else None
                     ),
                     "created_at": c.created_at.isoformat() + "Z" if c.created_at else None,
+                    # NEW: Interaction statistics
+                    "interaction_count": interaction_stats.get(c.id, {}).get('interaction_count', 0),
+                    "last_interaction_date": interaction_stats.get(c.id, {}).get('last_interaction_date'),
                 } for c in clients
             ],
             "total": total,
             "page": page,
             "per_page": per_page,
             "sort_order": sort_order,
-            "user_email": user_email
+            "user_email": user_email,
+            "activity_filter": activity_filter  # NEW: Include filter in response
         }
 
         response = jsonify(response_data)

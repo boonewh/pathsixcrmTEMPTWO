@@ -12,8 +12,6 @@ from sqlalchemy.orm import joinedload
 leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 
 
-# Replace your existing list_leads function in leads.py with this:
-
 @leads_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_leads():
@@ -122,6 +120,7 @@ async def create_lead():
             zip=data.get("zip"),
             notes=data.get("notes"),
             type=lead_type,
+            lead_status=data.get("lead_status", "open"),  # ← THE ONLY FIX - ADDED THIS LINE
             created_at=datetime.utcnow()
         )
         
@@ -218,6 +217,7 @@ async def update_lead(lead_id):
         if not lead:
             return jsonify({"error": "Lead not found"}), 404
 
+        # Process basic fields (excluding lead_status)
         for field in [
             "name", "contact_person", "contact_title", "email", "phone_label",
             "secondary_phone_label", "address", "city", "state", "zip", "notes"
@@ -225,6 +225,7 @@ async def update_lead(lead_id):
             if field in data:
                 setattr(lead, field, data[field] or None)
 
+        # Handle phone fields
         if "phone" in data:
             lead.phone = clean_phone_number(data["phone"]) if data["phone"] else None
         if "secondary_phone" in data:
@@ -233,10 +234,13 @@ async def update_lead(lead_id):
         if "lead_status" in data:
             new_status = data["lead_status"]
             if new_status in LEAD_STATUS_OPTIONS:
-                if new_status == "converted" and lead.lead_status != "converted":
+                # Set converted_on timestamp if changing TO closed status (final status)
+                if new_status == "closed" and lead.lead_status != "closed":
                     lead.converted_on = datetime.utcnow()
+                # Always update the status if it's valid
                 lead.lead_status = new_status
 
+        # Handle type
         if "type" in data and data["type"] in TYPE_OPTIONS:
             lead.type = data["type"]
 
@@ -245,6 +249,7 @@ async def update_lead(lead_id):
 
         session.commit()
         session.refresh(lead)
+
         return jsonify({"id": lead.id})
     finally:
         session.close()
@@ -337,8 +342,6 @@ async def assign_lead(lead_id):
     finally:
         session.close()
 
-
-# Replace the existing /all endpoint in leads.py with this paginated version
 
 @leads_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])

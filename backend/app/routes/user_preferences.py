@@ -11,14 +11,13 @@ preferences_bp = Blueprint("preferences", __name__, url_prefix="/api/preferences
 # Default preferences - this is what users get if they haven't customized anything
 DEFAULT_PREFERENCES = {
     "pagination": {
-        "clients": {"perPage": 10, "sort": "newest"},
-        "leads": {"perPage": 10, "sort": "newest"},
-        "projects": {"perPage": 10, "sort": "newest"},
-        "interactions": {"perPage": 10, "sort": "newest"},
-        "admin_clients": {"perPage": 20, "sort": "newest"},
-        "admin_leads": {"perPage": 20, "sort": "newest"},
-        "admin_projects": {"perPage": 20, "sort": "newest"},
-        "admin_interactions": {"perPage": 20, "sort": "newest"}
+        "clients": {"perPage": 10, "sort": "newest", "viewMode": "cards"},
+        "leads": {"perPage": 10, "sort": "newest", "viewMode": "cards"},
+        "projects": {"perPage": 10, "sort": "newest", "viewMode": "cards"},
+        "admin_clients": {"perPage": 20, "sort": "newest", "viewMode": "table"},
+        "admin_leads": {"perPage": 20, "sort": "newest", "viewMode": "table"},
+        "admin_projects": {"perPage": 20, "sort": "newest", "viewMode": "table"},
+        "admin_interactions": {"perPage": 20, "sort": "newest", "viewMode": "table"}
     },
     "display": {
         "sidebar_collapsed": False,
@@ -76,12 +75,16 @@ async def update_pagination_preference(table_name):
     # Validate data
     per_page = data.get('perPage', 10)
     sort_order = data.get('sort', 'newest')
+    view_mode = data.get('viewMode', 'cards')
     
     if not isinstance(per_page, int) or per_page < 1 or per_page > 100:
         return jsonify({"error": "Invalid perPage value (1-100)"}), 400
         
     if sort_order not in ['newest', 'oldest', 'alphabetical', 'pending', 'completed']:
         return jsonify({"error": "Invalid sort order"}), 400
+    
+    if view_mode not in ['cards', 'table']:
+        view_mode = 'cards'
     
     try:
         # Find existing preference or create new
@@ -95,7 +98,8 @@ async def update_pagination_preference(table_name):
         
         preference_value = {
             'perPage': per_page,
-            'sort': sort_order
+            'sort': sort_order,
+            'viewMode': view_mode
         }
         
         if existing_pref:
