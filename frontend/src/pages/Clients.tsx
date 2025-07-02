@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import EntityCard from "@/components/ui/EntityCard";
 import { useAuth, userHasRole } from "@/authContext";
-import { Mail, Phone, MapPin, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp } from "lucide-react";
+import { Mail, Phone, MapPin, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp, Edit, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import CompanyForm from "@/components/ui/CompanyForm";
 import { Client } from "@/types";
@@ -161,20 +161,20 @@ function ClientsTable({
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex justify-end gap-2">
-                  <button
-                    onClick={() => onEdit(client)}
-                    className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
-                    title={`Edit ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
-                  >
-                    ✏️
-                  </button>
-                  <button
-                    onClick={() => handleDelete(client)}
-                    className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
-                    title={`Delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
-                  >
-                    🗑️
-                  </button>
+                <button
+                  onClick={() => onEdit(client)}
+                  className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
+                  title={`Edit ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
+                >
+                  <Edit size={14} />
+                </button>
+                <button
+                  onClick={() => handleDelete(client)}
+                  className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
+                  title={`Delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
+                >
+                  <Trash2 size={14} />
+                </button>
                 </div>
               </td>
             </tr>

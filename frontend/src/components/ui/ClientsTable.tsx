@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Client } from "@/types";
 import { formatPhoneNumber } from "@/lib/phoneUtils";
 
+
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
 
