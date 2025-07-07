@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from datetime import datetime
 from app.models import Project, ActivityLog, ActivityType, Client, Lead, User
 from app.database import SessionLocal
@@ -24,7 +24,7 @@ def parse_date_with_default_time(value):
 @projects_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_projects():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         page = int(request.args.get("page", 1))
@@ -93,7 +93,7 @@ async def list_projects():
 @projects_bp.route("/<int:project_id>", methods=["GET"])
 @requires_auth()
 async def get_project(project_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         project = session.query(Project).options(
@@ -148,7 +148,7 @@ async def get_project(project_id):
 @projects_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_project():
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
 
@@ -196,7 +196,7 @@ async def create_project():
 @projects_bp.route("/<int:project_id>", methods=["PUT"])
 @requires_auth()
 async def update_project(project_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
@@ -256,7 +256,7 @@ async def update_project(project_id):
 @projects_bp.route("/<int:project_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_project(project_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         project = session.query(Project).filter(
@@ -278,7 +278,7 @@ async def delete_project(project_id):
 @requires_auth()
 async def get_project_interactions(project_id):
     """Get interactions for a specific project"""
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         # Verify project exists and user has access
@@ -307,7 +307,7 @@ async def get_project_interactions(project_id):
 @projects_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_projects():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         page = int(request.args.get("page", 1))
@@ -415,7 +415,7 @@ async def list_all_projects():
 @projects_bp.route("/by-client/<int:client_id>", methods=["GET"])
 @requires_auth()
 async def list_projects_by_client(client_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         client = session.query(Client).filter(
@@ -462,7 +462,7 @@ async def list_projects_by_client(client_id):
 @projects_bp.route("/by-lead/<int:lead_id>", methods=["GET"])
 @requires_auth()
 async def list_projects_by_lead(lead_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         lead = session.query(Lead).filter(

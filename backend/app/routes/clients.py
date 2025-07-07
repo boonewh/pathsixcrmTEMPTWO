@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from datetime import datetime, timedelta
 from app.models import Client, ActivityLog, ActivityType, User, Interaction
 from app.database import SessionLocal
@@ -14,7 +14,13 @@ clients_bp = Blueprint("clients", __name__, url_prefix="/api/clients")
 @clients_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_clients():
-    user = request.user
+    print("🛡️ DEBUG AUTH — token user:", g.user)
+    print("🧪 SYNC DEBUG — g.user:", g.user)
+    print("🧪 SYNC DEBUG — Headers:", request.headers)
+    print("🧪 SYNC DEBUG — Query args:", request.args)
+    print("🧪 hit clients route")
+
+    user = g.user 
     session = SessionLocal()
     try:
         page = int(request.args.get("page", 1))
@@ -25,6 +31,8 @@ async def list_clients():
         # Validate sort order
         if sort_order not in ["newest", "oldest", "alphabetical", "activity"]:
             sort_order = "newest"
+
+        print("🔍 Sync debug — user:", user.id, user.email, [r.name for r in user.roles])
 
         # Base query with interaction data
         query = session.query(Client).options(
@@ -140,6 +148,8 @@ async def list_clients():
             "activity_filter": activity_filter  # NEW: Include filter in response
         })
         response.headers["Cache-Control"] = "no-store"
+        print("📦 Clients returned:", len(clients))
+
         return response
     finally:
         session.close()
@@ -148,7 +158,7 @@ async def list_clients():
 @clients_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_client():
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
@@ -186,7 +196,7 @@ async def create_client():
 @clients_bp.route("/<int:client_id>", methods=["GET"])
 @requires_auth()
 async def get_client(client_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         client_query = session.query(Client).filter(
@@ -245,7 +255,7 @@ async def get_client(client_id):
 @clients_bp.route("/<int:client_id>", methods=["PUT"])
 @requires_auth()
 async def update_client(client_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
@@ -287,7 +297,7 @@ async def update_client(client_id):
 @clients_bp.route("/<int:client_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_client(client_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         client = session.query(Client).filter(
@@ -313,7 +323,7 @@ async def delete_client(client_id):
 @clients_bp.route("/<int:client_id>/assign", methods=["PUT"])
 @requires_auth(roles=["admin"])
 async def assign_client(client_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     assigned_to = data.get("assigned_to")
 
@@ -361,7 +371,7 @@ async def assign_client(client_id):
 @clients_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_clients():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         # Get pagination parameters
@@ -490,7 +500,7 @@ async def list_all_clients():
 @clients_bp.route("/assigned", methods=["GET"])
 @requires_auth()
 async def list_assigned_clients():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         clients = session.query(Client).options(

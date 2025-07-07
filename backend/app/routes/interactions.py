@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify, Response
+from quart import Blueprint, request, jsonify, Response, g
 from datetime import datetime
 from sqlalchemy.orm import joinedload
 from sqlalchemy import or_, and_, func
@@ -14,7 +14,7 @@ interactions_bp = Blueprint("interactions", __name__, url_prefix="/api/interacti
 @interactions_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_interactions():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         client_id = request.args.get("client_id")
@@ -188,7 +188,7 @@ async def list_interactions():
 @requires_auth()
 async def create_interaction():
     data = await request.get_json()
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         # Validate exactly one entity is specified
@@ -261,7 +261,7 @@ async def create_interaction():
 @requires_auth()
 async def update_interaction(interaction_id):
     data = await request.get_json()
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         interaction = session.query(Interaction).options(
@@ -309,7 +309,7 @@ async def update_interaction(interaction_id):
 @interactions_bp.route("/<int:interaction_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_interaction(interaction_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         interaction = session.query(Interaction).options(
@@ -350,7 +350,7 @@ async def transfer_interactions():
     data = await request.get_json()
     from_lead_id = data.get("from_lead_id")
     to_client_id = data.get("to_client_id")
-    user = request.user
+    user = g.user 
 
     if not from_lead_id or not to_client_id:
         return jsonify({"error": "Missing from_lead_id or to_client_id"}), 400
@@ -457,7 +457,7 @@ async def get_interaction_ics(interaction_id):
 @interactions_bp.route("/<int:interaction_id>/complete", methods=["PUT"])
 @requires_auth()
 async def complete_interaction(interaction_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         interaction = session.query(Interaction).options(
@@ -495,7 +495,7 @@ async def complete_interaction(interaction_id):
 @interactions_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_interactions_admin():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         page = int(request.args.get("page", 1))

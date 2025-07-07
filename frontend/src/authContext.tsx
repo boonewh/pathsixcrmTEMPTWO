@@ -51,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
+    console.warn("🔓 Logging out, clearing token and user");
     localStorage.removeItem("token");
     localStorage.removeItem("authUser");
     setToken(null);
@@ -79,6 +80,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => clearInterval(interval);
   }, [token]);
+
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      console.warn("⚠️ Global 401 handler: Logging out");
+      logout();
+    };
+
+    window.addEventListener("unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("unauthorized", handleUnauthorized);
+  }, []);
+
 
   // 🔁 Verify token with retry on app load
   useEffect(() => {

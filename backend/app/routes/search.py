@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from sqlalchemy import or_, and_, func
 from app.database import SessionLocal
 from app.models import Client, Lead, Project, Account, User
@@ -9,7 +9,7 @@ search_bp = Blueprint("search", __name__, url_prefix="/api/search")
 @search_bp.route("/", methods=["GET"])
 @requires_auth()
 async def global_search():
-    user = request.user
+    user = g.user 
     query = request.args.get("q", "").strip().lower()
     if not query:
         return jsonify([])

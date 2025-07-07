@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from datetime import datetime
 import pandas as pd
 import io
@@ -20,7 +20,7 @@ async def import_leads():
     Expected CSV columns: OWNER_NAME, PLANT_NAME, ADDRESS, CITY, STATE, PHONE, 
                          SIC_DESC, CONTACT TITLE, CONTACT FIRST NAME, CONTACT LAST NAME, CONTACT EMAIL
     """
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     
     try:
@@ -187,4 +187,4 @@ async def test_import_route():
     """
     Simple test route to verify the import blueprint is working
     """
-    return jsonify({"message": "Import route is working!", "user": request.user.email}), 200
+    return jsonify({"message": "Import route is working!", "user": g.user.email}), 200

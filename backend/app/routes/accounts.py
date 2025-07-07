@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from datetime import datetime
 from app.models import Account, ActivityLog, ActivityType
 from app.database import SessionLocal
@@ -12,7 +12,7 @@ accounts_bp = Blueprint("accounts", __name__, url_prefix="/api/accounts")
 @accounts_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_accounts():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         accounts = session.query(Account).options(
@@ -42,7 +42,7 @@ async def list_accounts():
 @accounts_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_account():
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
@@ -81,7 +81,7 @@ async def create_account():
 @accounts_bp.route("/<int:account_id>", methods=["PUT"])
 @requires_auth()
 async def update_account(account_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
@@ -124,7 +124,7 @@ async def update_account(account_id):
 @accounts_bp.route("/<int:account_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_account(account_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         account = session.query(Account).filter(
@@ -144,7 +144,7 @@ async def delete_account(account_id):
 @accounts_bp.route("/<int:account_id>", methods=["GET"])
 @requires_auth()
 async def get_account(account_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         account = session.query(Account).options(

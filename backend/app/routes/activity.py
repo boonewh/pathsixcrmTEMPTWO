@@ -1,4 +1,4 @@
-from quart import Blueprint, jsonify, request
+from quart import Blueprint, jsonify, request, g
 from sqlalchemy import func, desc
 from app.database import SessionLocal
 from app.models import ActivityLog, Client, Lead, Project, Account
@@ -10,7 +10,7 @@ activity_bp = Blueprint("activity", __name__, url_prefix="/api/activity")
 @activity_bp.route("/recent", methods=["GET"])
 @requires_auth()
 async def recent_activity():
-    user = request.user
+    user = g.user
     session = SessionLocal()
     try:
         limit = int(request.args.get("limit", 10))

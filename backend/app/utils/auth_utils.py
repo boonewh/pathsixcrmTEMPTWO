@@ -1,7 +1,7 @@
 import bcrypt
 import time
 from authlib.jose import jwt, JoseError
-from quart import request, jsonify, current_app
+from quart import request, jsonify, current_app, g
 from functools import wraps
 from app.models import User
 from app.database import SessionLocal
@@ -37,7 +37,7 @@ def requires_auth(roles: list = None):
                 return jsonify({"error": "Missing or invalid token"}), 401
             token = auth_header.split(" ")[1]
             try:
-                payload = decode_token(token)
+                payload = jwt.decode(token, current_app.config["SECRET_KEY"])
             except JoseError:
                 return jsonify({"error": "Invalid token"}), 401
 
@@ -47,6 +47,10 @@ def requires_auth(roles: list = None):
                     .options(joinedload(User.roles))\
                     .filter(User.id == payload["sub"], User.is_active == True)\
                     .first()
+                if user:
+                    print("✅ Loaded user from DB:", user.id, user.email)
+                else:
+                    print("❌ User not found for sub:", payload["sub"])
             except SQLAlchemyError:
                 session.rollback()
                 return jsonify({"error": "Database error"}), 500
@@ -55,10 +59,14 @@ def requires_auth(roles: list = None):
 
             if not user:
                 return jsonify({"error": "User not found"}), 401
-            if roles and not any(role in payload["roles"] for role in roles):
-                return jsonify({"error": "Forbidden"}), 403
+            if roles:
+                role_names = [r.name for r in user.roles]
+                if not any(role in role_names for role in roles):
+                    return jsonify({"error": "Forbidden"}), 403
 
-            request.user = user
+            # ✅ Use g instead of request.user
+            g.user = user
+
             return await fn(*args, **kwargs)
         return decorated
     return wrapper

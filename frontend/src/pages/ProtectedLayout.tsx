@@ -3,6 +3,10 @@ import { useAuth } from "@/authContext";
 import { useState, useEffect, useRef } from "react";
 import SidebarNav from "@/components/SidebarNav";
 import { apiFetch } from "@/lib/api";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
+import { toast } from "react-hot-toast";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import OfflineStatusIndicator from "@/components/ui/OfflineStatusIndicator";
 
 export default function ProtectedLayout() {
   const { isAuthenticated, logout, token } = useAuth();
@@ -14,9 +18,46 @@ export default function ProtectedLayout() {
   const [showResults, setShowResults] = useState(false);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
+  const { processQueue } = useSyncQueue();
+  const { authReady } = useAuthReady();
+  const hasSynced = useRef(false);
+
   useEffect(() => {
     setCollapsed(false);
   }, []);
+
+  useEffect(() => {
+    const trySync = () => {
+      if (hasSynced.current) return;
+
+      if (!authReady || !isAuthenticated) {
+        console.log("⏳ Not ready: skipping sync", {
+          authReady,
+          isAuthenticated,
+        });
+        return;
+      }
+
+      const timeout = setTimeout(async () => {
+        const toastId = toast.loading("Syncing data…");
+        try {
+          await processQueue();
+          toast.success("Data synced successfully", { id: toastId });
+
+          // ✅ Only mark as synced if successful
+          hasSynced.current = true;
+        } catch (err) {
+          console.warn("❌ Initial sync failed:", err);
+          toast.error("Sync failed", { id: toastId });
+          // ❌ Do not mark as synced on failure
+        }
+      }, 300);
+
+      return () => clearTimeout(timeout);
+    };
+
+    trySync();
+  }, [authReady, isAuthenticated]);
 
   useEffect(() => {
     const delayDebounce = setTimeout(() => {
@@ -61,7 +102,6 @@ export default function ProtectedLayout() {
   return (
     <div className="flex min-h-screen bg-muted">
       {/* Sidebar (desktop + mobile) */}
-      {/* Mobile backdrop */}
       {isMobileOpen && (
         <div
           className="fixed inset-0 bg-black/50 z-30 lg:hidden"
@@ -156,12 +196,15 @@ export default function ProtectedLayout() {
             )}
           </div>
 
-          <button
-            onClick={logout}
-            className="bg-accent text-accent-foreground hover:bg-accent/80 px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap"
-          >
-            Logout
-          </button>
+          <div className="flex items-center gap-4">
+            <OfflineStatusIndicator />
+            <button
+              onClick={logout}
+              className="bg-accent text-accent-foreground hover:bg-accent/80 px-4 py-2 rounded-md text-sm transition-colors whitespace-nowrap"
+            >
+              Logout
+            </button>
+          </div>
         </header>
 
         <main className="flex-1 p-6 overflow-y-auto">

@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
 from app.models import User, UserPreference
@@ -29,7 +29,7 @@ DEFAULT_PREFERENCES = {
 @requires_auth()
 async def get_user_preferences():
     """Get all user preferences with defaults merged in"""
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     
     try:
@@ -60,7 +60,7 @@ async def get_user_preferences():
 @requires_auth()
 async def update_pagination_preference(table_name):
     """Update pagination preferences for a specific table"""
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     

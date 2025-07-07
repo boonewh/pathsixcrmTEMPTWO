@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify, current_app
+from quart import Blueprint, request, jsonify, current_app, g
 from sqlalchemy.exc import SQLAlchemyError
 from app.models import User
 from app.database import SessionLocal
@@ -113,7 +113,7 @@ async def change_password():
     data = await request.get_json()
     current_password = data.get("current_password")
     new_password = data.get("new_password")
-    user = request.user
+    user = g.user 
 
     if not current_password or not new_password:
         return jsonify({"error": "Missing required fields"}), 400

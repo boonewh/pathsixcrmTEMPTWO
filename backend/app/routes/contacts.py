@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from app.models import Contact
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
@@ -10,7 +10,7 @@ contacts_bp = Blueprint("contacts", __name__, url_prefix="/api/contacts")
 @contacts_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_contacts():
-    user = request.user
+    user = g.user 
     client_id = request.args.get("client_id")
     lead_id = request.args.get("lead_id")
 
@@ -48,7 +48,7 @@ async def list_contacts():
 @contacts_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_contact():
-    user = request.user
+    user = g.user 
     data = await request.get_json()
 
     session = SessionLocal()
@@ -79,7 +79,7 @@ async def create_contact():
 @contacts_bp.route("/<int:contact_id>", methods=["PUT"])
 @requires_auth()
 async def update_contact(contact_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
 
     session = SessionLocal()
@@ -114,7 +114,7 @@ async def update_contact(contact_id):
 @contacts_bp.route("/<int:contact_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_contact(contact_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         contact = session.query(Contact).filter(

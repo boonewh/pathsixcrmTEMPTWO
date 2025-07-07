@@ -1,4 +1,4 @@
-from quart import Blueprint, jsonify, request
+from quart import Blueprint, jsonify, request, g
 from sqlalchemy import func
 from datetime import datetime
 from app.database import SessionLocal
@@ -13,7 +13,7 @@ from dateutil.parser import parse as parse_date
 @reports_bp.route("/", methods=["GET"])
 @requires_auth()
 async def get_reports():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         tenant_id = user.tenant_id
@@ -77,7 +77,7 @@ async def get_reports():
 @reports_bp.route("/summary", methods=["POST"])
 @requires_auth()
 async def summary_report():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         tenant_id = user.tenant_id

@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
+import OfflineStatusIndicator from "@/components/ui/OfflineStatusIndicator";
 
 export default function Layout({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -22,12 +23,17 @@ export default function Layout({ children }: { children: ReactNode }) {
       {/* Top Header */}
       <header className="flex justify-between items-center px-6 py-4 bg-white border-b shadow-sm">
         <h1 className="text-2xl font-bold text-blue-600">PathSix CRM</h1>
-        <button
-          onClick={handleLogout}
-          className="text-sm text-white bg-gray-700 hover:bg-gray-800 px-4 py-2 rounded-md"
-        >
-          Logout
-        </button>
+        
+        {/* Right side with offline status and logout */}
+        <div className="flex items-center gap-4">
+          <OfflineStatusIndicator />
+          <button
+            onClick={handleLogout}
+            className="text-sm text-white bg-gray-700 hover:bg-gray-800 px-4 py-2 rounded-md"
+          >
+            Logout
+          </button>
+        </div>
       </header>
 
       {/* Body */}

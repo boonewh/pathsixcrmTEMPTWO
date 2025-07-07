@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from datetime import datetime
 from app.models import Lead, ActivityLog, ActivityType, User
 from app.database import SessionLocal
@@ -15,7 +15,7 @@ leads_bp = Blueprint("leads", __name__, url_prefix="/api/leads")
 @leads_bp.route("/", methods=["GET"])
 @requires_auth()
 async def list_leads():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         page = int(request.args.get("page", 1))
@@ -93,7 +93,7 @@ async def list_leads():
 @leads_bp.route("/", methods=["POST"])
 @requires_auth()
 async def create_lead():
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     
     session = SessionLocal()
@@ -134,7 +134,7 @@ async def create_lead():
 @leads_bp.route("/<int:lead_id>", methods=["GET"])
 @requires_auth()
 async def get_lead(lead_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         lead_query = session.query(Lead).options(
@@ -199,7 +199,7 @@ async def get_lead(lead_id):
 @leads_bp.route("/<int:lead_id>", methods=["PUT"])
 @requires_auth()
 async def update_lead(lead_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     
     session = SessionLocal()
@@ -258,7 +258,7 @@ async def update_lead(lead_id):
 @leads_bp.route("/<int:lead_id>", methods=["DELETE"])
 @requires_auth()
 async def delete_lead(lead_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         lead = session.query(Lead).filter(
@@ -285,7 +285,7 @@ async def delete_lead(lead_id):
 @leads_bp.route("/<int:lead_id>/assign", methods=["PUT"])
 @requires_auth(roles=["admin"])
 async def assign_lead(lead_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     assigned_to = data.get("assigned_to")
 
@@ -346,7 +346,7 @@ async def assign_lead(lead_id):
 @leads_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_leads_admin():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         # Get pagination parameters
@@ -432,7 +432,7 @@ async def list_all_leads_admin():
 @leads_bp.route("/assigned", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_assigned_leads():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         leads = session.query(Lead).filter(

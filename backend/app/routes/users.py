@@ -1,4 +1,4 @@
-from quart import Blueprint, request, jsonify
+from quart import Blueprint, request, jsonify, g
 from app.models import User, Role, ActivityLog, ActivityType
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth, hash_password
@@ -10,7 +10,7 @@ from sqlalchemy.orm import joinedload
 @users_bp.route("/", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_users():
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         users = session.query(User).options(joinedload(User.roles)).filter(
@@ -36,7 +36,7 @@ async def list_users():
 @users_bp.route("/", methods=["POST"])
 @requires_auth(roles=["admin"])
 async def create_user():
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
@@ -81,7 +81,7 @@ async def create_user():
 @users_bp.route("/<int:user_id>/toggle-active", methods=["PUT"])
 @requires_auth(roles=["admin"])
 async def toggle_user_active(user_id):
-    user = request.user
+    user = g.user 
     session = SessionLocal()
     try:
         target = session.query(User).filter(
@@ -108,7 +108,7 @@ async def toggle_user_active(user_id):
 @users_bp.route("/<int:user_id>/roles", methods=["PUT"])
 @requires_auth(roles=["admin"])
 async def update_user_roles(user_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     new_roles = data.get("roles", [])
 
@@ -140,7 +140,7 @@ async def update_user_roles(user_id):
 @users_bp.route("/<int:user_id>", methods=["PUT"])
 @requires_auth(roles=["admin"])
 async def update_user_email(user_id):
-    user = request.user
+    user = g.user 
     data = await request.get_json()
     session = SessionLocal()
     try:
