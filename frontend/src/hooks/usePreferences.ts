@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '@/authContext';
-import { apiFetch } from '@/lib/api';
+import { apiFetch, backgroundApiFetch } from '@/lib/api'; // 🔥 Import backgroundApiFetch
+import { useAuthReady } from '@/hooks/useAuthReady';
 
 interface PaginationPreferences {
   perPage: number;
   sort: 'newest' | 'oldest' | 'alphabetical';
-  viewMode: 'cards' | 'table';  // NEW: Add viewMode support
+  viewMode: 'cards' | 'table';
 }
 
 interface UserPreferences {
@@ -16,32 +17,74 @@ interface UserPreferences {
   };
 }
 
+// Local storage keys for offline fallback
+const PREFERENCES_STORAGE_KEY = 'crm_user_preferences';
+const getUserPreferencesKey = (userId?: number) => `${PREFERENCES_STORAGE_KEY}_${userId || 'guest'}`;
+
 export function usePreferences() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const { canMakeAPICall } = useAuthReady();
   const [preferences, setPreferences] = useState<UserPreferences | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Load preferences on mount
   useEffect(() => {
-    if (!token) return;
+    if (!token || !user) return;
 
     const loadPreferences = async () => {
       try {
         setError(null);
-        const res = await apiFetch('/preferences/', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
         
-        if (res.ok) {
-          const data = await res.json();
-          setPreferences(data);
+        // Try to load from server first if online
+        if (canMakeAPICall) {
+          try {
+            const res = await backgroundApiFetch('/preferences/', {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            
+            if (res.ok) {
+              const data = await res.json();
+              setPreferences(data);
+              
+              // Save to localStorage as backup
+              const storageKey = getUserPreferencesKey(user.id);
+              localStorage.setItem(storageKey, JSON.stringify(data));
+              
+              console.log('📋 Loaded preferences from server');
+              setLoading(false);
+              return;
+            }
+          } catch (serverError) {
+            console.warn('⚠️ Failed to load preferences from server:', serverError);
+            // Fall through to localStorage
+          }
+        }
+
+        // Load from localStorage
+        const storageKey = getUserPreferencesKey(user.id);
+        const saved = localStorage.getItem(storageKey);
+        
+        if (saved) {
+          try {
+            const parsedPrefs = JSON.parse(saved);
+            setPreferences(parsedPrefs);
+            console.log('💾 Loaded preferences from localStorage');
+          } catch (parseError) {
+            console.warn('Failed to parse saved preferences:', parseError);
+            // Use defaults if parsing fails
+            setPreferences({
+              pagination: {},
+              display: { sidebar_collapsed: false, theme: 'light' }
+            });
+          }
         } else {
-          // Set defaults if preferences don't exist yet
+          // Set defaults if no saved preferences
           setPreferences({
             pagination: {},
             display: { sidebar_collapsed: false, theme: 'light' }
           });
+          console.log('📋 Using default preferences');
         }
       } catch (error) {
         console.error('Failed to load preferences:', error);
@@ -57,50 +100,57 @@ export function usePreferences() {
     };
 
     loadPreferences();
-  }, [token]);
+  }, [token, user, canMakeAPICall]);
 
   // Update pagination preferences for a specific table
   const updatePaginationPrefs = useCallback(async (
     tableName: string, 
     prefs: PaginationPreferences
   ) => {
-    if (!token || !preferences) return;
+    if (!token || !preferences || !user) return;
 
     // Optimistic update
     const previousPrefs = preferences.pagination[tableName];
-    setPreferences(prev => prev ? {
-      ...prev,
+    const updatedPreferences = {
+      ...preferences,
       pagination: {
-        ...prev.pagination,
+        ...preferences.pagination,
         [tableName]: prefs
       }
-    } : null);
+    };
+    
+    setPreferences(updatedPreferences);
 
-    try {
-      const res = await apiFetch(`/preferences/pagination/${tableName}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(prefs),
-      });
+    // Always save to localStorage immediately
+    const storageKey = getUserPreferencesKey(user.id);
+    localStorage.setItem(storageKey, JSON.stringify(updatedPreferences));
 
-      if (!res.ok) {
-        throw new Error('Failed to update preferences');
-      }
-    } catch (error) {
-      console.error('Failed to update pagination preferences:', error);
-      // Rollback on error
-      setPreferences(prev => prev ? {
-        ...prev,
-        pagination: {
-          ...prev.pagination,
-          [tableName]: previousPrefs || { perPage: 10, sort: 'newest', viewMode: 'cards' }
+    // 🔥 Try to save to server using backgroundApiFetch (no toast errors)
+    if (canMakeAPICall) {
+      try {
+        const res = await backgroundApiFetch(`/preferences/pagination/${tableName}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(prefs),
+        });
+
+        if (res.ok) {
+          console.log(`📋 Saved preferences for ${tableName} to server`);
+        } else {
+          console.log(`💾 Saved preferences for ${tableName} to localStorage only (server failed)`);
         }
-      } : null);
+      } catch (error) {
+        // 🔥 Silently fail - localStorage is our fallback, no toast errors
+        console.log(`💾 Saved preferences for ${tableName} to localStorage only (offline)`);
+        // Don't rollback or show error - localStorage save succeeded
+      }
+    } else {
+      console.log(`💾 Saved preferences for ${tableName} to localStorage (offline)`);
     }
-  }, [token, preferences]);
+  }, [token, preferences, user, canMakeAPICall]);
 
   // Get pagination preferences for a specific table
   const getPaginationPrefs = useCallback((tableName: string): PaginationPreferences => {
@@ -133,12 +183,12 @@ export function usePagination(tableName: string) {
   return {
     perPage: prefs.perPage,
     sortOrder: prefs.sort,
-    viewMode: prefs.viewMode,  // NEW: Expose viewMode
+    viewMode: prefs.viewMode,
     currentPage,
     setCurrentPage,
     updatePerPage: (perPage: number) => updatePrefs({ perPage }),
     updateSortOrder: (sort: 'newest' | 'oldest' | 'alphabetical') => updatePrefs({ sort }),
-    updateViewMode: (viewMode: 'cards' | 'table') => updatePrefs({ viewMode }),  // NEW: Add viewMode updater
+    updateViewMode: (viewMode: 'cards' | 'table') => updatePrefs({ viewMode }),
     isLoading: loading,
   };
 }

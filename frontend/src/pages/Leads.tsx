@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import EntityCard from "@/components/ui/EntityCard";
-import { Mail, Phone, MapPin, Flag, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp } from "lucide-react";
+import { Mail, Phone, MapPin, Flag, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp, Edit, Trash2 } from "lucide-react";
 import { useAuth, userHasRole } from "@/authContext";
 import { Link } from "react-router-dom";
 import LeadForm from "@/components/ui/LeadForm";
@@ -12,6 +12,10 @@ import { useSorting, legacySortToUnified, unifiedToLegacySort } from "@/hooks/us
 import StatusTabs from "@/components/ui/StatusTabs";
 import LeadsTable from "@/components/ui/LeadsTable";
 import { formatPhoneNumber } from "@/lib/phoneUtils";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
+import toast from "react-hot-toast";
 
 // Lead status options for filtering
 const LEAD_STATUS_OPTIONS = ['open', 'qualified', 'proposal', 'closed'] as const;
@@ -35,8 +39,8 @@ const LEAD_STATUS_CONFIG = {
 
 // Smart default for filter visibility based on screen size
 const getDefaultFilterVisibility = () => {
-  if (typeof window === 'undefined') return true; // SSR fallback
-  return window.innerWidth >= 1024; // lg breakpoint
+  if (typeof window === 'undefined') return true;
+  return window.innerWidth >= 1024;
 };
 
 export default function Leads() {
@@ -44,6 +48,7 @@ export default function Leads() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // Use pagination hook
   const {
@@ -106,6 +111,9 @@ export default function Leads() {
 
   const [error, setError] = useState("");
   const { token, user } = useAuth();
+  const { createEntity, updateEntity, deleteEntity, listEntities } = useLocalEntityStore();
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { queueOperation } = useSyncQueue();
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedLeadId, setSelectedLeadId] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
@@ -114,58 +122,229 @@ export default function Leads() {
   // Update filter visibility on window resize
   useEffect(() => {
     const handleResize = () => {
-      // Only auto-adjust if user hasn't manually toggled filters
       const isLargeScreen = window.innerWidth >= 1024;
-      if (isLargeScreen && !showFilters) {
-        // Don't auto-open if user explicitly closed them
-      } else if (!isLargeScreen && showFilters) {
-        // Don't auto-close if user explicitly opened them
-      }
+      if (isLargeScreen && !showFilters) return;
+      if (!isLargeScreen && showFilters) return;
     };
 
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [showFilters]);
 
-  useEffect(() => {
-    const fetchLeads = async () => {
-      setLoading(true);
-      try {
-        const res = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setLeads(data.leads);
-        setTotal(data.total);
-        setError(""); // Reset error on successful fetch
-      } catch (err) {
-        setError("Failed to load leads");
-      } finally {
-        setLoading(false);
+  // 🔥 NEW: Smart data fetching with offline fallback (improved error handling)
+  const fetchLeads = async (forceOffline = false) => {
+    setLoading(true);
+    setError(""); // Clear any previous errors
+
+    try {
+      // Determine if we should use offline mode
+      const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
+
+      if (!shouldUseOffline && authReady) {
+        // Try API first
+        try {
+          console.log("📡 Attempting to fetch leads from API...");
+          const res = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!res.ok) {
+            throw new Error(`API Error: ${res.status}`);
+          }
+
+          const data = await res.json();
+          setLeads(data.leads || []);
+          setTotal(data.total || 0);
+          setIsOfflineMode(false);
+          console.log("✅ Successfully fetched from API");
+          return;
+        } catch (apiError) {
+          console.warn("🌐 API fetch failed, falling back to offline:", apiError);
+          // Fall through to offline mode - don't set error here
+        }
       }
-    };
+
+      // Use offline storage
+      console.log("💾 Fetching leads from offline storage...");
+      const result = await listEntities("leads", {
+        page: currentPage,
+        perPage,
+      });
+
+      if (result.success && result.data) {
+        setLeads(result.data.items || []);
+        setTotal(result.data.total || result.data.items.length);
+        setIsOfflineMode(true);
+        console.log(`💾 Loaded ${result.data.items.length} leads from offline storage`);
+      } else {
+        // Only show error if we can't load from offline storage either
+        console.error("❌ Failed to load from offline storage:", result.error);
+        setError("Unable to load data. Please check your connection and try again.");
+        setLeads([]);
+        setTotal(0);
+        setIsOfflineMode(true); // Still in offline mode
+      }
+
+    } catch (err) {
+      console.error("❌ Critical error loading leads:", err);
+      // Only show user-friendly error for critical failures
+      setError("Unable to load data. Please refresh the page.");
+      setLeads([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load data when component mounts or dependencies change
+  useEffect(() => {
+    if (!authReady) {
+      console.log("⏳ Waiting for auth to be ready...");
+      return;
+    }
 
     fetchLeads();
+  }, [authReady, currentPage, perPage, sortOrder]);
 
-    if (userHasRole(user, "admin")) {
+  // Load users for admin assignment functionality
+  useEffect(() => {
+    if (userHasRole(user, "admin") && canMakeAPICall) {
       fetch("/api/users/", {
         headers: { Authorization: `Bearer ${token}` },
       })
         .then((res) => res.json())
-        .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)));
+        .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)))
+        .catch(() => {}); // Fail silently - assignment just won't work offline
     }
-  }, [token, currentPage, perPage, sortOrder]);
+  }, [user, canMakeAPICall, token]);
 
-  // Advanced filtering logic
-  const filteredLeads = leads.filter(lead => {
-    // Status filter
-    if (statusFilter !== 'all' && lead.lead_status !== statusFilter) return false;
-    
-    return true;
-  });
+  // 🔥 NEW: Smart create/update/delete with offline queueing (improved error handling)
+  const handleSave = async () => {
+    try {
+      setError(""); // Clear any previous errors
 
-  // Apply unified sorting to filtered data
-  const sortedLeads = sortData(filteredLeads);
+      if (creating) {
+        // Create new lead
+        if (canMakeAPICall && navigator.onLine) {
+          // Try API first
+          try {
+            const res = await apiFetch("/leads/", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: JSON.stringify(form),
+            });
+
+            if (res.ok) {
+              await fetchLeads(); // Refresh data
+              handleCancel();
+              toast.success('Lead created successfully');
+              return;
+            }
+          } catch (apiError) {
+            console.warn("Create API failed, using offline mode:", apiError);
+            // Fall through to offline mode - don't show error
+          }
+        }
+
+        // Use offline storage
+        const result = await createEntity('leads', form);
+        if (result.success) {
+          // Queue for sync
+          if (result.data?.id) {
+            await queueOperation('CREATE', 'leads', result.data.id, form, result.data.id);
+          }
+          await fetchLeads(); // Refresh data
+          handleCancel();
+          toast.success(`Lead created ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+        } else {
+          throw new Error(result.error);
+        }
+      } else {
+        // Update existing lead
+        if (!editingId) return;
+
+        if (canMakeAPICall && navigator.onLine) {
+          // Try API first
+          try {
+            const res = await apiFetch(`/leads/${editingId}`, {
+              method: "PUT",
+              headers: { Authorization: `Bearer ${token}` },
+              body: JSON.stringify(form),
+            });
+
+            if (res.ok) {
+              await fetchLeads(); // Refresh data
+              handleCancel();
+              toast.success('Lead updated successfully');
+              return;
+            }
+          } catch (apiError) {
+            console.warn("Update API failed, using offline mode:", apiError);
+            // Fall through to offline mode - don't show error
+          }
+        }
+
+        // Use offline storage
+        const result = await updateEntity('leads', editingId, form);
+        if (result.success) {
+          // Queue for sync
+          await queueOperation('UPDATE', 'leads', editingId, form);
+          await fetchLeads(); // Refresh data
+          handleCancel();
+          toast.success(`Lead updated ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+        } else {
+          throw new Error(result.error);
+        }
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to save lead';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Are you sure you want to delete this lead?')) return;
+
+    try {
+      setError(""); // Clear any previous errors
+
+      if (canMakeAPICall && navigator.onLine) {
+        // Try API first
+        try {
+          const res = await apiFetch(`/leads/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (res.ok) {
+            setLeads((prev) => prev.filter((l) => l.id !== id));
+            setTotal((prev) => prev - 1);
+            toast.success('Lead deleted successfully');
+            return;
+          }
+        } catch (apiError) {
+          console.warn("Delete API failed, using offline mode:", apiError);
+          // Fall through to offline mode - don't show error
+        }
+      }
+
+      // Use offline storage
+      const result = await deleteEntity('leads', id);
+      if (result.success) {
+        // Queue for sync
+        await queueOperation('DELETE', 'leads', id, {});
+        await fetchLeads(); // Refresh data
+        toast.success(`Lead deleted ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to delete lead';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    }
+  };
 
   const handleTableEdit = (lead: Lead) => {
     setForm({
@@ -175,47 +354,6 @@ export default function Leads() {
     });
     setEditingId(lead.id);
     setShowEditModal(true);
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm("Are you sure you want to delete this lead?")) return;
-
-    const res = await apiFetch(`/leads/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (res.ok) {
-      setLeads((prev) => prev.filter((l) => l.id !== id));
-      setTotal((prev) => prev - 1);
-    } else {
-      alert("Failed to delete lead");
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      const method = creating ? "POST" : "PUT";
-      const url = creating ? "/leads/" : `/leads/${editingId}`;
-
-      const res = await apiFetch(url, {
-        method,
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
-      });
-
-      if (!res.ok) throw new Error("Failed to save lead");
-
-      const updatedRes = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const fullData = await updatedRes.json();
-      setLeads(fullData.leads);
-      setTotal(fullData.total);
-      handleCancel();
-    } catch (err: any) {
-      setError(err.message || "Failed to save lead");
-    }
   };
 
   const handleCancel = () => {
@@ -239,6 +377,17 @@ export default function Leads() {
     });
   };
 
+  // Advanced filtering logic
+  const filteredLeads = leads.filter(lead => {
+    // Status filter
+    if (statusFilter !== 'all' && lead.lead_status !== statusFilter) return false;
+    
+    return true;
+  });
+
+  // Apply unified sorting to filtered data
+  const sortedLeads = sortData(filteredLeads);
+
   // Clear all filters
   const clearAllFilters = () => {
     setStatusFilter('all');
@@ -248,6 +397,24 @@ export default function Leads() {
 
   return (
     <div className="p-4 lg:p-6">
+      {/* Offline Mode Indicator */}
+      {isOfflineMode && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <span className="text-sm text-yellow-800">
+              Working offline - changes will sync when connection is restored
+            </span>
+            <button
+              onClick={() => fetchLeads(false)}
+              className="ml-auto text-xs bg-yellow-200 hover:bg-yellow-300 px-2 py-1 rounded"
+            >
+              Retry Online
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold">Leads</h1>
@@ -302,7 +469,11 @@ export default function Leads() {
         </div>
       </div>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800 text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Collapsible Filters Panel */}
       {showFilters && (
@@ -403,6 +574,7 @@ export default function Leads() {
       <div className="mb-4 text-sm text-gray-600">
         <span className="font-medium">{sortedLeads.length}</span> of {leads.length} leads
         {statusFilter !== 'all' && <span className="text-blue-600"> • {statusFilter}</span>}
+        {isOfflineMode && <span className="text-yellow-600"> • Offline Mode</span>}
       </div>
 
       {/* Content */}
@@ -530,7 +702,7 @@ export default function Leads() {
                     </ul>
                   }
                   extraMenuItems={
-                    userHasRole(user, "admin") ? (
+                    userHasRole(user, "admin") && !isOfflineMode ? (
                       <button
                         className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100"
                         onClick={() => {
@@ -617,8 +789,8 @@ export default function Leads() {
         </div>
       )}
 
-      {/* Assignment Modal */}
-      {showAssignModal && (
+      {/* Assignment Modal - Only show if online */}
+      {showAssignModal && !isOfflineMode && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
             <h2 className="text-lg font-semibold mb-4">Assign Lead</h2>
@@ -663,14 +835,9 @@ export default function Leads() {
                     setShowAssignModal(false);
                     setSelectedUserId(null);
                     setSelectedLeadId(null);
-                    const updatedRes = await apiFetch(`/leads/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-                      headers: { Authorization: `Bearer ${token}` },
-                    });
-                    const fullData = await updatedRes.json();
-                    setLeads(fullData.leads);
-                    setTotal(fullData.total);
+                    await fetchLeads();
                   } else {
-                    alert("Failed to assign lead.");
+                    alert('Failed to assign lead.');
                   }
                 }}
                 className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 order-1 sm:order-2"
@@ -682,6 +849,7 @@ export default function Leads() {
         </div>
       )}
 
+      {/* Edit Modal */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">

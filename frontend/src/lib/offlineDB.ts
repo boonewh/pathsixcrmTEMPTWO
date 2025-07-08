@@ -10,7 +10,7 @@ import {
 } from '@/types/offline';
 
 export const DB_NAME = 'crm-db';
-export const DB_VERSION = 1;
+export const DB_VERSION = 4;
 
 export class OfflineDatabase extends Dexie {
   clients!: Table<OfflineClient>;
@@ -68,6 +68,16 @@ export class OfflineDatabase extends Dexie {
       leads: 'id, name, email, lead_status, created_at, _lastModified, _syncedAt, _version, _pending',
       projects: 'id, project_name, project_status, client_id, lead_id, created_at, _lastModified, _syncedAt, _version, _pending',
       interactions: 'id, client_id, lead_id, project_id, contact_date, follow_up, _lastModified, _syncedAt, _version, _pending',
+      syncQueue: 'id, entityType, status, timestamp, nextRetryAt, retryCount, localId',
+      conflicts: 'operationId, entityType, entityId, timestamp',
+      metadata: 'key'
+    });
+
+    this.version(4).stores({
+      clients: 'id, name, email, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
+      leads: 'id, name, email, lead_status, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
+      projects: 'id, project_name, project_status, client_id, lead_id, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
+      interactions: 'id, client_id, lead_id, project_id, contact_date, follow_up, _lastModified, _syncedAt, _version, _pending, _deleted',
       syncQueue: 'id, entityType, status, timestamp, nextRetryAt, retryCount, localId',
       conflicts: 'operationId, entityType, entityId, timestamp',
       metadata: 'key'

@@ -1,7 +1,11 @@
 import { useEffect, useState } from "react";
 import EntityCard from "@/components/ui/EntityCard";
 import { useAuth, userHasRole } from "@/authContext";
-import { Mail, Phone, MapPin, User, StickyNote, Wrench, LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp, Edit, Trash2 } from "lucide-react";
+import {
+  Mail, Phone, MapPin, User, StickyNote, Wrench,
+  LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp,
+  Edit, Trash2
+} from "lucide-react";
 import { Link } from "react-router-dom";
 import CompanyForm from "@/components/ui/CompanyForm";
 import { Client } from "@/types";
@@ -11,37 +15,38 @@ import { useStatusFilter } from "@/hooks/useStatusFilter";
 import { useSorting, legacySortToUnified, unifiedToLegacySort } from "@/hooks/useSorting";
 import StatusTabs from "@/components/ui/StatusTabs";
 import { formatPhoneNumber } from "@/lib/phoneUtils";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
+import toast from "react-hot-toast";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
 
-// Account type options for filtering
 const ACCOUNT_TYPE_OPTIONS = [
-  'None', 'Oil & Gas', 'Secondary Containment', 'Tanks', 'Pipe', 
+  'None', 'Oil & Gas', 'Secondary Containment', 'Tanks', 'Pipe',
   'Rental', 'Food and Beverage', 'Bridge', 'Culvert'
 ] as const;
 
-// Smart default for filter visibility based on screen size
 const getDefaultFilterVisibility = () => {
-  if (typeof window === 'undefined') return true; // SSR fallback
-  return window.innerWidth >= 1024; // lg breakpoint
+  if (typeof window === 'undefined') return true;
+  return window.innerWidth >= 1024;
 };
 
-// Table component for proper data table view
-function ClientsTable({ 
-  clients, 
-  onEdit, 
+function ClientsTable({
+  clients,
+  onEdit,
   onDelete,
   sortField,
   sortDirection,
   onSort,
-  getSortIcon
+  getSortIcon,
 }: {
   clients: Client[];
   onEdit: (client: Client) => void;
   onDelete: (id: number) => void;
   sortField: string;
-  sortDirection: 'asc' | 'desc';
+  sortDirection: "asc" | "desc";
   onSort: (field: string) => void;
   getSortIcon: (field: string) => string;
 }) {
@@ -56,32 +61,32 @@ function ClientsTable({
       <table className="min-w-full">
         <thead className="bg-gray-50">
           <tr>
-            <th 
+            <th
               className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => onSort('name')}
+              onClick={() => onSort("name")}
             >
-              {USE_ACCOUNT_LABELS ? 'Account' : 'Client'} Name <span className="ml-1">{getSortIcon('name')}</span>
+              Name <span className="ml-1">{getSortIcon("name")}</span>
             </th>
-            <th 
+            <th
               className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => onSort('contact_person')}
+              onClick={() => onSort("contact_person")}
             >
-              Contact <span className="ml-1">{getSortIcon('contact_person')}</span>
+              Contact <span className="ml-1">{getSortIcon("contact_person")}</span>
             </th>
-            <th 
+            <th
               className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => onSort('type')}
+              onClick={() => onSort("type")}
             >
-              Type <span className="ml-1">{getSortIcon('type')}</span>
+              Type <span className="ml-1">{getSortIcon("type")}</span>
             </th>
             <th className="px-4 py-3 text-left text-sm font-medium text-gray-500">
               Contact Info
             </th>
-            <th 
+            <th
               className="px-4 py-3 text-left text-sm font-medium text-gray-500 cursor-pointer hover:bg-gray-100 select-none"
-              onClick={() => onSort('created_at')}
+              onClick={() => onSort("created_at")}
             >
-              Created <span className="ml-1">{getSortIcon('created_at')}</span>
+              Created <span className="ml-1">{getSortIcon("created_at")}</span>
             </th>
             <th className="px-4 py-3 text-right text-sm font-medium text-gray-500">
               Actions
@@ -91,36 +96,25 @@ function ClientsTable({
         <tbody className="bg-white divide-y divide-gray-200">
           {clients.map((client) => (
             <tr key={client.id} className="hover:bg-gray-50">
+              <td className="px-4 py-3 font-medium text-gray-900">
+                <Link to={`/clients/${client.id}`} className="text-blue-600 hover:underline">
+                  {client.name}
+                </Link>
+              </td>
               <td className="px-4 py-3">
-                <div className="font-medium text-gray-900">
-                  <Link
-                    to={`/clients/${client.id}`}
-                    className="text-blue-600 hover:underline"
-                  >
-                    {client.name}
-                  </Link>
-                </div>
-                {client.address && (
-                  <div className="text-sm text-gray-500 truncate max-w-xs">
-                    {client.city && client.state ? `${client.city}, ${client.state}` : client.address}
-                  </div>
+                {client.contact_person || client.contact_title ? (
+                  <>
+                    {client.contact_person && <div>{client.contact_person}</div>}
+                    {client.contact_title && (
+                      <div className="text-sm text-gray-500 italic">{client.contact_title}</div>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-gray-400">—</span>
                 )}
               </td>
-              <td className="px-4 py-3">
-                <div>
-                  {client.contact_person && (
-                    <div className="font-medium text-gray-900">{client.contact_person}</div>
-                  )}
-                  {client.contact_title && (
-                    <div className="text-sm text-gray-500">{client.contact_title}</div>
-                  )}
-                  {!client.contact_person && !client.contact_title && (
-                    <span className="text-gray-400">—</span>
-                  )}
-                </div>
-              </td>
               <td className="px-4 py-3 text-sm text-gray-600">
-                {client.type || '—'}
+                {client.type || "—"}
               </td>
               <td className="px-4 py-3 text-sm text-gray-600">
                 <div className="space-y-1">
@@ -157,34 +151,36 @@ function ClientsTable({
                 </div>
               </td>
               <td className="px-4 py-3 text-sm text-gray-600">
-                {client.created_at ? new Date(client.created_at).toLocaleDateString() : '—'}
+                {client.created_at
+                  ? new Date(client.created_at).toLocaleDateString()
+                  : "—"}
               </td>
               <td className="px-4 py-3 text-right">
                 <div className="flex justify-end gap-2">
-                <button
-                  onClick={() => onEdit(client)}
-                  className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
-                  title={`Edit ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
-                >
-                  <Edit size={14} />
-                </button>
-                <button
-                  onClick={() => handleDelete(client)}
-                  className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
-                  title={`Delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`}
-                >
-                  <Trash2 size={14} />
-                </button>
+                  <button
+                    onClick={() => onEdit(client)}
+                    className="text-blue-600 hover:text-blue-800 p-1 rounded hover:bg-blue-50"
+                    title={`Edit ${USE_ACCOUNT_LABELS ? "account" : "client"}`}
+                  >
+                    <Edit size={14} />
+                  </button>
+                  <button
+                    onClick={() => handleDelete(client)}
+                    className="text-red-600 hover:text-red-800 p-1 rounded hover:bg-red-50"
+                    title={`Delete ${USE_ACCOUNT_LABELS ? "account" : "client"}`}
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </td>
             </tr>
           ))}
         </tbody>
       </table>
-      
+
       {clients.length === 0 && (
         <div className="text-center py-8 text-gray-500">
-          <p>No {USE_ACCOUNT_LABELS ? 'accounts' : 'clients'} found.</p>
+          <p>No {USE_ACCOUNT_LABELS ? "accounts" : "clients"} found.</p>
         </div>
       )}
     </div>
@@ -196,126 +192,259 @@ export default function Clients() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
-  // Use pagination hook
   const {
-    perPage,
-    sortOrder,
-    viewMode,
-    currentPage,
-    setCurrentPage,
-    updatePerPage,
-    updateSortOrder,
-    updateViewMode,
+    perPage, sortOrder, viewMode, currentPage,
+    setCurrentPage, updatePerPage, updateSortOrder, updateViewMode,
   } = usePagination('clients');
 
-  // Initialize unified sorting from pagination preferences
   const initialSort = legacySortToUnified(sortOrder, 'clients');
-  
   const {
-    sortField,
-    sortDirection,
-    handleSort,
-    getSortIcon,
-    sortData,
-    cardSortOptions,
-    currentCardValue,
-    setCardSort
+    sortField, sortDirection, handleSort, getSortIcon,
+    sortData, cardSortOptions, currentCardValue, setCardSort
   } = useSorting({
     entityType: 'clients',
     initialSort,
     onSortChange: (field, direction) => {
-      // Update pagination preferences when sort changes
       const legacySort = unifiedToLegacySort(field, direction, 'clients');
       updateSortOrder(legacySort);
     }
   });
 
-  // Type filter (preserves user's filter choice)
   const { statusFilter: typeFilter, setStatusFilter: setTypeFilter } = useStatusFilter('clients_type');
-
-  // Smart filter visibility - default open on desktop, closed on mobile
   const [showFilters, setShowFilters] = useState<boolean>(getDefaultFilterVisibility());
 
   const [editingId, setEditingId] = useState<number | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState<Partial<Client>>({
-    name: "",
-    contact_person: "",
-    email: "",
-    phone: "",
-    phone_label: "work", 
-    secondary_phone: "",
-    secondary_phone_label: "mobile",
-    address: "",
-    city: "",
-    state: "",
-    zip: "",
-    notes: "",
-    type: "None", 
+    name: "", contact_person: "", email: "", phone: "",
+    phone_label: "work", secondary_phone: "", secondary_phone_label: "mobile",
+    address: "", city: "", state: "", zip: "", notes: "", type: "None",
   });
 
   const [error, setError] = useState("");
   const { token, user } = useAuth();
+  const { createEntity, updateEntity, deleteEntity, listEntities } = useLocalEntityStore();
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { queueOperation } = useSyncQueue();
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState<number | null>(null);
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [availableUsers, setAvailableUsers] = useState<{ id: number; email: string }[]>([]);
 
-  // Update filter visibility on window resize
   useEffect(() => {
     const handleResize = () => {
-      // Only auto-adjust if user hasn't manually toggled filters
       const isLargeScreen = window.innerWidth >= 1024;
-      if (isLargeScreen && !showFilters) {
-        // Don't auto-open if user explicitly closed them
-      } else if (!isLargeScreen && showFilters) {
-        // Don't auto-close if user explicitly opened them
-      }
+      if (isLargeScreen && !showFilters) return;
+      if (!isLargeScreen && showFilters) return;
     };
-
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, [showFilters]);
 
-  useEffect(() => {
-    const fetchClients = async () => {
-      setLoading(true);
-      try {
-        const res = await apiFetch(`/clients/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        setClients(data.clients);
-        setTotal(data.total);
-        setError(""); // Reset error on successful fetch
-      } catch (err) {
-        setError("Failed to load accounts");
-      } finally {
-        setLoading(false);
+  // 🔥 NEW: Smart data fetching with offline fallback (improved error handling)
+  const fetchClients = async (forceOffline = false) => {
+    setLoading(true);
+    setError(""); // Clear any previous errors
+
+    try {
+      // Determine if we should use offline mode
+      const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
+
+      if (!shouldUseOffline && authReady) {
+        // Try API first
+        try {
+          console.log("📡 Attempting to fetch clients from API...");
+          const res = await apiFetch(`/clients/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!res.ok) {
+            throw new Error(`API Error: ${res.status}`);
+          }
+
+          const data = await res.json();
+          setClients(data.clients || []);
+          setTotal(data.total || 0);
+          setIsOfflineMode(false);
+          console.log("✅ Successfully fetched from API");
+          return;
+        } catch (apiError) {
+          console.warn("🌐 API fetch failed, falling back to offline:", apiError);
+          // Fall through to offline mode - don't set error here
+        }
       }
-    };
+
+      // Use offline storage
+      console.log("💾 Fetching clients from offline storage...");
+      const result = await listEntities("clients", {
+        page: currentPage,
+        perPage,
+      });
+
+      if (result.success && result.data) {
+        setClients(result.data.items || []);
+        setTotal(result.data.total || result.data.items.length);
+        setIsOfflineMode(true);
+        console.log(`💾 Loaded ${result.data.items.length} clients from offline storage`);
+      } else {
+        // Only show error if we can't load from offline storage either
+        console.error("❌ Failed to load from offline storage:", result.error);
+        setError("Unable to load data. Please check your connection and try again.");
+        setClients([]);
+        setTotal(0);
+        setIsOfflineMode(true); // Still in offline mode
+      }
+
+    } catch (err) {
+      console.error("❌ Critical error loading clients:", err);
+      // Only show user-friendly error for critical failures
+      setError("Unable to load data. Please refresh the page.");
+      setClients([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load data when component mounts or dependencies change
+  useEffect(() => {
+    if (!authReady) {
+      console.log("⏳ Waiting for auth to be ready...");
+      return;
+    }
 
     fetchClients();
+  }, [authReady, currentPage, perPage, sortOrder]);
 
-    if (userHasRole(user, "admin")) {
-      fetch("/api/users/", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => res.json())
-        .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)));
+  // 🔥 NEW: Smart create/update/delete with offline queueing (improved error handling)
+  const handleSave = async () => {
+    try {
+      setError(""); // Clear any previous errors
+
+      if (creating) {
+        // Create new client
+        if (canMakeAPICall && navigator.onLine) {
+          // Try API first
+          try {
+            const res = await apiFetch("/clients/", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: JSON.stringify(form),
+            });
+
+            if (res.ok) {
+              await fetchClients(); // Refresh data
+              handleCancel();
+              toast.success(`${USE_ACCOUNT_LABELS ? 'Account' : 'Client'} created successfully`);
+              return;
+            }
+          } catch (apiError) {
+            console.warn("Create API failed, using offline mode:", apiError);
+            // Fall through to offline mode - don't show error
+          }
+        }
+
+        // Use offline storage
+        const result = await createEntity('clients', form);
+        if (result.success) {
+          // Queue for sync
+          if (result.data?.id) {
+            await queueOperation('CREATE', 'clients', result.data.id, form, result.data.id);
+          }
+          await fetchClients(); // Refresh data
+          handleCancel();
+          toast.success(`${USE_ACCOUNT_LABELS ? 'Account' : 'Client'} created ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+        } else {
+          throw new Error(result.error);
+        }
+      } else {
+        // Update existing client
+        if (!editingId) return;
+
+        if (canMakeAPICall && navigator.onLine) {
+          // Try API first
+          try {
+            const res = await apiFetch(`/clients/${editingId}`, {
+              method: "PUT",
+              headers: { Authorization: `Bearer ${token}` },
+              body: JSON.stringify(form),
+            });
+
+            if (res.ok) {
+              await fetchClients(); // Refresh data
+              handleCancel();
+              toast.success(`${USE_ACCOUNT_LABELS ? 'Account' : 'Client'} updated successfully`);
+              return;
+            }
+          } catch (apiError) {
+            console.warn("Update API failed, using offline mode:", apiError);
+            // Fall through to offline mode - don't show error
+          }
+        }
+
+        // Use offline storage
+        const result = await updateEntity('clients', editingId, form);
+        if (result.success) {
+          // Queue for sync
+          await queueOperation('UPDATE', 'clients', editingId, form);
+          await fetchClients(); // Refresh data
+          handleCancel();
+          toast.success(`${USE_ACCOUNT_LABELS ? 'Account' : 'Client'} updated ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+        } else {
+          throw new Error(result.error);
+        }
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || `Failed to save ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`;
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
-  }, [token, currentPage, perPage, sortOrder]);
+  };
 
-  // Filter logic - only type filter now
-  const filteredClients = clients.filter(client => {
-    // Type filter
-    if (typeFilter !== 'all' && client.type !== typeFilter) return false;
-    return true;
-  });
+  const handleDelete = async (id: number) => {
+    if (!confirm(`Are you sure you want to delete this ${USE_ACCOUNT_LABELS ? 'account' : 'client'}?`)) return;
 
-  // Apply unified sorting to filtered data
-  const sortedClients = sortData(filteredClients);
+    try {
+      setError(""); // Clear any previous errors
+
+      if (canMakeAPICall && navigator.onLine) {
+        // Try API first
+        try {
+          const res = await apiFetch(`/clients/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (res.ok) {
+            setClients((prev) => prev.filter((c) => c.id !== id));
+            setTotal((prev) => prev - 1);
+            toast.success(`${USE_ACCOUNT_LABELS ? 'Account' : 'Client'} deleted successfully`);
+            return;
+          }
+        } catch (apiError) {
+          console.warn("Delete API failed, using offline mode:", apiError);
+          // Fall through to offline mode - don't show error
+        }
+      }
+
+      // Use offline storage
+      const result = await deleteEntity('clients', id);
+      if (result.success) {
+        // Queue for sync
+        await queueOperation('DELETE', 'clients', id, {});
+        await fetchClients(); // Refresh data
+        toast.success(`${USE_ACCOUNT_LABELS ? 'Account' : 'Client'} deleted ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || `Failed to delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`;
+      setError(errorMessage);
+      toast.error(errorMessage);
+    }
+  };
 
   const handleTableEdit = (client: Client) => {
     setForm({
@@ -325,47 +454,6 @@ export default function Clients() {
     });
     setEditingId(client.id);
     setShowEditModal(true);
-  };
-
-  const handleDelete = async (id: number) => {
-    if (!confirm(`Are you sure you want to delete this ${USE_ACCOUNT_LABELS ? 'account' : 'client'}?`)) return;
-
-    const res = await apiFetch(`/clients/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
-
-    if (res.ok) {
-      setClients((prev) => prev.filter((c) => c.id !== id));
-      setTotal((prev) => prev - 1);
-    } else {
-      alert(`Failed to delete ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`);
-    }
-  };
-
-  const handleSave = async () => {
-    try {
-      const method = creating ? "POST" : "PUT";
-      const url = creating ? "/clients/" : `/clients/${editingId}`;
-
-      const res = await apiFetch(url, {
-        method,
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
-      });
-
-      if (!res.ok) throw new Error(`Failed to save ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`);
-
-      const updatedRes = await apiFetch(`/clients/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const fullData = await updatedRes.json();
-      setClients(fullData.clients);
-      setTotal(fullData.total);
-      handleCancel();
-    } catch (err: any) {
-      setError(err.message || `Failed to save ${USE_ACCOUNT_LABELS ? 'account' : 'client'}`);
-    }
   };
 
   const handleCancel = () => {
@@ -388,22 +476,53 @@ export default function Clients() {
     });
   };
 
-  // Clear all filters - now only handles type filter
-  const clearAllFilters = () => {
-    setTypeFilter('all');
-  };
+  // Load users for admin assignment functionality
+  useEffect(() => {
+    if (userHasRole(user, "admin") && canMakeAPICall) {
+      fetch("/api/users/", {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then((res) => res.json())
+        .then((data) => setAvailableUsers(data.filter((u: any) => u.is_active)))
+        .catch(() => {}); // Fail silently - assignment just won't work offline
+    }
+  }, [user, canMakeAPICall, token]);
 
+  const filteredClients = clients.filter(client => {
+    if (typeFilter !== 'all' && client.type !== typeFilter) return false;
+    return true;
+  });
+
+  const sortedClients = sortData(filteredClients);
+  const clearAllFilters = () => setTypeFilter('all');
   const activeFiltersCount = typeFilter !== 'all' ? 1 : 0;
 
   return (
     <div className="p-4 lg:p-6">
+      {/* Offline Mode Indicator */}
+      {isOfflineMode && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <span className="text-sm text-yellow-800">
+              Working offline - changes will sync when connection is restored
+            </span>
+            <button
+              onClick={() => fetchClients(false)}
+              className="ml-auto text-xs bg-yellow-200 hover:bg-yellow-300 px-2 py-1 rounded"
+            >
+              Retry Online
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold">
           {USE_ACCOUNT_LABELS ? "Accounts" : "Clients"}
         </h1>
         <div className="flex gap-2 w-full sm:w-auto">
-          {/* Filters Toggle Button */}
           <button
             onClick={() => setShowFilters(!showFilters)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-colors flex-1 sm:flex-none justify-center ${
@@ -422,7 +541,6 @@ export default function Clients() {
             )}
           </button>
 
-          {/* New Account Button */}
           <button
             onClick={() => {
               setCreating(true);
@@ -452,16 +570,17 @@ export default function Clients() {
         </div>
       </div>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800 text-sm">{error}</p>
+        </div>
+      )}
 
-      {/* Collapsible Filters Panel */}
+      {/* Filters Panel */}
       {showFilters && (
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6 space-y-4">
-          {/* View Mode + Type Filters */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-            {/* Left: View Mode + Type Filters */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 w-full lg:w-auto">
-              {/* View Toggle */}
               <div className="flex bg-white rounded-lg p-1 border">
                 <button 
                   className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
@@ -487,7 +606,6 @@ export default function Clients() {
                 </button>
               </div>
 
-              {/* Type Tabs */}
               <StatusTabs 
                 statusFilter={typeFilter} 
                 setStatusFilter={setTypeFilter}
@@ -498,9 +616,7 @@ export default function Clients() {
             </div>
           </div>
 
-          {/* Sort + Per Page Controls */}
           <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-            {/* Sort Control - different for cards vs tables */}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Sort:</label>
               {viewMode === 'cards' ? (
@@ -522,7 +638,6 @@ export default function Clients() {
               )}
             </div>
 
-            {/* Per Page Control */}
             <div className="flex items-center gap-2">
               <label className="text-sm font-medium text-gray-700 whitespace-nowrap">Per page:</label>
               <select 
@@ -553,6 +668,7 @@ export default function Clients() {
       <div className="mb-4 text-sm text-gray-600">
         <span className="font-medium">{sortedClients.length}</span> of {clients.length} {USE_ACCOUNT_LABELS ? 'accounts' : 'clients'}
         {typeFilter !== 'all' && <span className="text-blue-600"> • {typeFilter}</span>}
+        {isOfflineMode && <span className="text-yellow-600"> • Offline Mode</span>}
       </div>
 
       {/* Content */}
@@ -668,7 +784,7 @@ export default function Clients() {
                     </ul>
                   }
                   extraMenuItems={
-                    userHasRole(user, "admin") ? (
+                    userHasRole(user, "admin") && !isOfflineMode ? (
                       <button
                         className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100"
                         onClick={() => {
@@ -720,16 +836,14 @@ export default function Clients() {
         </div>
       )}
 
-      {/* Only show pagination at bottom when there are multiple pages */}
+      {/* Pagination */}
       {filteredClients.length > perPage && (
         <div className="mt-6 pt-4 border-t border-gray-200">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            {/* Simple pagination info */}
             <span className="text-sm text-gray-600">
               Showing {((currentPage - 1) * perPage) + 1}-{Math.min(currentPage * perPage, filteredClients.length)} of {filteredClients.length}
             </span>
 
-            {/* Page navigation */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setCurrentPage(Math.max(currentPage - 1, 1))}
@@ -755,8 +869,8 @@ export default function Clients() {
         </div>
       )}
 
-      {/* Assignment Modal */}
-      {showAssignModal && (
+      {/* Assignment Modal - Only show if online */}
+      {showAssignModal && !isOfflineMode && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
             <h2 className="text-lg font-semibold mb-4">Assign {USE_ACCOUNT_LABELS ? "Account" : "Client"}</h2>
@@ -801,12 +915,7 @@ export default function Clients() {
                     setShowAssignModal(false);
                     setSelectedUserId(null);
                     setSelectedClientId(null);
-                    const updatedRes = await apiFetch(`/clients/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-                      headers: { Authorization: `Bearer ${token}` },
-                    });
-                    const fullData = await updatedRes.json();
-                    setClients(fullData.clients);
-                    setTotal(fullData.total);
+                    await fetchClients();
                   } else {
                     alert(`Failed to assign ${USE_ACCOUNT_LABELS ? 'account' : 'client'}.`);
                   }
@@ -820,6 +929,7 @@ export default function Clients() {
         </div>
       )}
 
+      {/* Edit Modal */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-lg shadow-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">

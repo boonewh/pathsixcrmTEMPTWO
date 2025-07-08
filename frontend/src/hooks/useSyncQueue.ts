@@ -1,8 +1,8 @@
-// frontend/src/hooks/useSyncQueue.ts (Fixed with Auth Guard)
+// frontend/src/hooks/useSyncQueue.ts (Fixed with Better Offline Handling)
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { offlineDB } from '@/lib/offlineDB';
 import { SyncOperation, ConflictData, ConflictResolution } from '@/types/offline';
-import { apiFetch } from '@/lib/api';
+import { backgroundApiFetch } from '@/lib/api'; // 🔥 Use backgroundApiFetch instead
 import { useAuth } from '@/authContext';
 import { useNetworkStatus } from './useNetworkStatus';
 import type { EntityType } from '@/lib/validation';
@@ -36,7 +36,7 @@ const RETRY_CONFIG = {
 } as const;
 
 export function useSyncQueue() {
-  const { token, isAuthenticated } = useAuth(); // 🔥 Add isAuthenticated check
+  const { token, isAuthenticated } = useAuth();
   const { networkStatus, updateSyncStatus } = useNetworkStatus();
   const [isProcessing, setIsProcessing] = useState(false);
   const [conflicts, setConflicts] = useState<ConflictData[]>([]);
@@ -118,78 +118,75 @@ export function useSyncQueue() {
   }
 
   async function syncEntity(type: EntityType): Promise<void> {
+    // 🔥 CRITICAL FIX: Don't sync when offline
+    if (!canSync) {
+      console.log(`⏸️ Skipping sync for ${type} - offline or not authenticated`);
+      return;
+    }
+
     try {
-      if (!canSync) return;
+      console.log(`🔄 Syncing ${type}...`);
+      updateSyncStatus('syncing');
 
-      try {
-        console.log(`🔄 Syncing ${type}...`);
-        updateSyncStatus('syncing');
+      // Step 1: Push all queued operations for this entity
+      const pendingOps = await offlineDB.syncQueue
+        .where('entityType')
+        .equals(type)
+        .and(op => ['pending', 'failed'].includes(op.status))
+        .toArray();
 
-        // Step 1: Push all queued operations for this entity
-        const pendingOps = await offlineDB.syncQueue
-          .where('entityType')
-          .equals(type)
-          .and(op => ['pending', 'failed'].includes(op.status))
-          .toArray();
+      for (const op of pendingOps) {
+        const table = offlineDB[type];
+        if (!table) continue;
 
-        for (const op of pendingOps) {
-
-          const table = offlineDB[type];
-          if (!table) continue;
-
-          const existing = await table.get(op.entityId);
-          if (
-            existing &&
-            typeof existing.updated_at === 'number' &&
-            typeof op.timestamp === 'number' &&
-            existing.updated_at >= op.timestamp
-          ) {
-            console.log(`⏩ Skipping stale op ${op.id} for ${type}#${op.entityId}`);
-            await offlineDB.syncQueue.update(op.id, { status: 'skipped' });
-            continue;
-          }
-
-          try {
-            await offlineDB.syncQueue.update(op.id, { status: 'syncing' });
-            const { success, errorType, error } = await processSingleOperation(op);
-            if (success) {
-              await offlineDB.syncQueue.update(op.id, { status: 'completed' });
-            } else {
-              const retryCount = (op.retryCount || 0) + 1;
-              const delay = calculateRetryDelay(retryCount, errorType);
-              await offlineDB.syncQueue.update(op.id, {
-                status: 'failed',
-                retryCount,
-                nextRetryAt: Date.now() + delay,
-                errorType,
-                lastError: error
-              } as Partial<ExtendedSyncOperation>);
-            }
-          } catch (err) {
-            console.error(`🔁 Failed to process queued op for ${type}:`, err);
-          }
+        const existing = await table.get(op.entityId);
+        if (
+          existing &&
+          typeof existing.updated_at === 'number' &&
+          typeof op.timestamp === 'number' &&
+          existing.updated_at >= op.timestamp
+        ) {
+          console.log(`⏩ Skipping stale op ${op.id} for ${type}#${op.entityId}`);
+          await offlineDB.syncQueue.update(op.id, { status: 'skipped' });
+          continue;
         }
-      } finally {
-        setSyncingEntities(prev => prev.filter(t => t !== type));
+
+        try {
+          await offlineDB.syncQueue.update(op.id, { status: 'syncing' });
+          const { success, errorType, error } = await processSingleOperation(op);
+          if (success) {
+            await offlineDB.syncQueue.update(op.id, { status: 'completed' });
+          } else {
+            const retryCount = (op.retryCount || 0) + 1;
+            const delay = calculateRetryDelay(retryCount, errorType);
+            await offlineDB.syncQueue.update(op.id, {
+              status: 'failed',
+              retryCount,
+              nextRetryAt: Date.now() + delay,
+              errorType,
+              lastError: error
+            } as Partial<ExtendedSyncOperation>);
+          }
+        } catch (err) {
+          console.error(`🔁 Failed to process queued op for ${type}:`, err);
+        }
       }
 
       // Step 2: Pull fresh data from server and store it
-      const res = await apiFetch(`/${type}?page=1&per_page=100`);
+      const res = await backgroundApiFetch(`/${type}/?page=1&per_page=100`);
 
       if (!res.ok) {
         const text = await res.text();
         throw new Error(`Failed to sync ${type}: ${res.status} ${text}`);
       }
 
-      // temporary add
-      const raw = await res.clone().text();  // clone lets you reuse the stream
-      console.log("🔍 Raw response body:", raw);
-
       const data = await res.json();
       const table = (offlineDB as any)[type];
       await table.clear();
-      await table.bulkAdd(
-        data.items.map((item: any) => ({
+
+      const items = Array.isArray(data[type]) ? data[type] : [];
+      await table.bulkPut(
+        items.map((item: any) => ({
           ...item,
           _lastModified: Date.now(),
           _syncedAt: Date.now(),
@@ -197,13 +194,13 @@ export function useSyncQueue() {
           _version: 1,
         }))
       );
-
-      // Step 3: Update lastSyncTime and status
       updateSyncStatus('synced', undefined, undefined);
-      console.log(`✅ Synced ${type} — ${data.items.length} items`);
+      console.log(`✅ Synced ${type} — ${items.length} items`);
     } catch (err: any) {
       console.error(`❌ Sync failed for ${type}:`, err);
       updateSyncStatus('error', undefined, undefined, `${type}: ${err.message || err}`);
+    } finally {
+      setSyncingEntities(prev => prev.filter(t => t !== type));
     }
   }
 
@@ -238,7 +235,7 @@ export function useSyncQueue() {
       
       // Update network status
       const pendingCount = await offlineDB.syncQueue.where('status').anyOf(['pending', 'failed']).count();
-      updateSyncStatus(canSync ? 'syncing' : 'offline', pendingCount); // 🔥 Updated logic
+      updateSyncStatus(canSync ? 'syncing' : 'offline', pendingCount);
       
       // 🔥 Only process immediately if we can actually sync
       if (canSync && !processingRef.current) {
@@ -254,7 +251,7 @@ export function useSyncQueue() {
       console.error('Failed to queue operation:', error);
       throw error;
     }
-  }, [canSync, updateSyncStatus]); // 🔥 Updated dependencies
+  }, [canSync, updateSyncStatus]);
 
   // Calculate next retry delay with exponential backoff
   const calculateRetryDelay = (
@@ -310,14 +307,17 @@ export function useSyncQueue() {
   };
 
   const processQueue = useCallback(async (): Promise<void> => {
-
     if (conflicts.length > 0) {
       console.warn("⏸️ Queue paused due to unresolved conflicts.");
       updateSyncStatus("conflict");
       return;
-}
+    }
 
-    if (!canSync || processingRef.current) return;
+    // 🔥 CRITICAL FIX: Don't process queue when offline
+    if (!canSync || processingRef.current) {
+      console.log("⏸️ Skipping queue processing - offline or already processing");
+      return;
+    }
 
     processingRef.current = true;
     setIsProcessing(true);
@@ -327,8 +327,15 @@ export function useSyncQueue() {
       const entityTypes: EntityType[] = ['clients', 'leads', 'projects', 'interactions'];
 
       for (const type of entityTypes) {
+        // 🔥 Check if still online before each entity
+        if (!canSync) {
+          console.log("⏸️ Going offline mid-sync, stopping...");
+          break;
+        }
+        
+        setSyncingEntities(prev => [...prev, type]);
         await syncEntity(type);
-        await delay(5000); // wait 5 seconds before next
+        await delay(1000); // wait 1 second between entities (reduced from 5)
       }
 
       const allConflicts = await offlineDB.conflicts.toArray();
@@ -352,9 +359,9 @@ export function useSyncQueue() {
     } finally {
       processingRef.current = false;
       setIsProcessing(false);
+      setSyncingEntities([]);
     }
   }, [canSync, updateSyncStatus]);
-
 
   // Process a single sync operation with enhanced error handling
   const processSingleOperation = async (
@@ -366,7 +373,7 @@ export function useSyncQueue() {
 
       switch (op.operation) {
         case 'CREATE':
-          response = await apiFetch(endpoint, {
+          response = await backgroundApiFetch(endpoint, {
             method: 'POST',
             headers: { Authorization: `Bearer ${token}` },
             body: JSON.stringify(op.data),
@@ -382,7 +389,7 @@ export function useSyncQueue() {
           break;
 
         case 'UPDATE':
-          response = await apiFetch(`${endpoint}/${op.entityId}`, {
+          response = await backgroundApiFetch(`${endpoint}/${op.entityId}`, {
             method: 'PUT',
             headers: { Authorization: `Bearer ${token}` },
             body: JSON.stringify(op.data),
@@ -392,13 +399,13 @@ export function useSyncQueue() {
             return { success: true, errorType: 'unknown', error: '' };
           } else if (response.status === 409) {
             const serverData = await response.json();
-            await handleConflict(op, serverData); // ✅ FIXED
+            await handleConflict(op, serverData);
             return { success: false, errorType: 'conflict', error: 'Data conflict detected' };
           }
           break;
 
         case 'DELETE':
-          response = await apiFetch(`${endpoint}/${op.entityId}`, {
+          response = await backgroundApiFetch(`${endpoint}/${op.entityId}`, {
             method: 'DELETE',
             headers: { Authorization: `Bearer ${token}` },
           });
@@ -426,7 +433,6 @@ export function useSyncQueue() {
     }
   };
 
-
   // Handle conflict detection and storage
   const handleConflict = async (op: SyncOperation, serverData: any) => {
     const conflictData: ConflictData = {
@@ -441,10 +447,7 @@ export function useSyncQueue() {
 
     await offlineDB.conflicts.add(conflictData);
     await offlineDB.syncQueue.update(op.id, { status: 'conflict' });
-
-    // Don't manually push to `conflicts` array — it will be refreshed in syncEntity
   };
-
 
   // Resolve a conflict with chosen strategy
   const resolveConflict = useCallback(async (
@@ -483,7 +486,7 @@ export function useSyncQueue() {
 
       // Apply the resolution
       const endpoint = getEndpointForEntity(operation.entityType);
-      const response = await apiFetch(`${endpoint}/${operation.entityId}`, {
+      const response = await backgroundApiFetch(`${endpoint}/${operation.entityId}`, {
         method: 'PUT',
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify(finalData)
@@ -509,7 +512,7 @@ export function useSyncQueue() {
       console.error('Error resolving conflict:', error);
       return false;
     }
-  }, [canSync, token]); // 🔥 Updated dependencies
+  }, [canSync, token]);
 
   // 🔥 Auto-process queue when we become able to sync (was offline/unauthenticated, now can sync)
   useEffect(() => {
@@ -531,11 +534,11 @@ export function useSyncQueue() {
         autoProcessTimeoutRef.current = null;
       }
     };
-  }, [canSync, processQueue]); // 🔥 Updated dependencies
+  }, [canSync, processQueue]);
 
-  // Process queue periodically when we can sync
+  // 🔥 REDUCED FREQUENCY: Process queue periodically when we can sync
   useEffect(() => {
-    if (!canSync) return; // 🔥 Only run when we can sync
+    if (!canSync) return; // Only run when we can sync
 
     const interval = setInterval(async () => {
       if (!processingRef.current) {
@@ -544,10 +547,10 @@ export function useSyncQueue() {
           processQueue();
         }
       }
-    }, 30000); // Check every 30 seconds
+    }, 60000); // 🔥 CHANGED: Check every 60 seconds instead of 30
 
     return () => clearInterval(interval);
-  }, [canSync, processQueue]); // 🔥 Updated dependencies
+  }, [canSync, processQueue]);
 
   // Helper functions
   const getEndpointForEntity = (entityType: string): string => {
@@ -626,7 +629,7 @@ export function useSyncQueue() {
     if (canSync) {
       processQueue();
     }
-  }, [canSync, processQueue]); // 🔥 Updated dependencies
+  }, [canSync, processQueue]);
 
   return {
     queueOperation,

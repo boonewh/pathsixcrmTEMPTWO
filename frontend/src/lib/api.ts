@@ -1,3 +1,4 @@
+
 import toast from "react-hot-toast";
 import { useAuth } from "@/authContext";
 import { useAuthReady } from "@/hooks/useAuthReady";
@@ -28,30 +29,67 @@ export async function apiFetch(path: string, options?: RequestInit) {
       headers,
     });
 
-  if (res.status === 401 && !path.includes("/user")) {
-    let hadAuthHeader = false;
+    if (res.status === 401 && !path.includes("/user")) {
+      let hadAuthHeader = false;
 
-    if (headers instanceof Headers) {
-      hadAuthHeader = headers.has("Authorization");
-    } else if (typeof headers === "object" && "Authorization" in headers) {
-      hadAuthHeader = true;
+      if (headers instanceof Headers) {
+        hadAuthHeader = headers.has("Authorization");
+      } else if (typeof headers === "object" && "Authorization" in headers) {
+        hadAuthHeader = true;
+      }
+
+      if (hadAuthHeader) {
+        console.warn("⚠️ 401 received with token, but not logging out automatically.");
+        toast.error(`Sync failed: Unauthorized`);
+      } else {
+        console.warn("⚠️ 401 received with no Authorization header — skipping logout");
+      }
+
+      return res;
     }
-
-    if (hadAuthHeader) {
-      console.warn("⚠️ 401 received with token, but not logging out automatically.");
-      toast.error(`Sync failed: Unauthorized`);
-    } else {
-      console.warn("⚠️ 401 received with no Authorization header — skipping logout");
-    }
-
-    return res;
-  }
-
 
     // other error and parsing logic here...
     return res;
   } catch (networkError) {
     toast.error("Unable to connect to server.");
+    throw networkError;
+  }
+}
+
+// 🔥 NEW: Background API fetch for sync operations (no user-facing errors)
+export async function backgroundApiFetch(path: string, options?: RequestInit) {
+  const fullUrl = `${API_BASE}${path}`;
+  const token = localStorage.getItem("token");
+
+  console.log("🔄 Background fetch:", fullUrl);
+  
+
+  const incomingHeaders = options?.headers || {};
+  const hasAuth = "Authorization" in incomingHeaders;
+
+  const headers: HeadersInit = {
+    "Content-Type": "application/json",
+    ...incomingHeaders,
+    ...(token && !hasAuth ? { Authorization: `Bearer ${token}` } : {}),
+  };
+
+  try {
+    const res = await fetch(fullUrl, {
+      ...options,
+      headers,
+    });
+
+    // 🔥 For background operations, just log errors - no toasts
+    if (res.status === 401) {
+      console.warn("🔄 Background sync: 401 Unauthorized");
+    } else if (!res.ok) {
+      console.warn(`🔄 Background sync: ${res.status} ${res.statusText}`);
+    }
+
+    return res;
+  } catch (networkError) {
+    // 🔥 Background operations fail silently - just log
+    console.warn("🔄 Background sync: Network error:", networkError);
     throw networkError;
   }
 }
