@@ -12,6 +12,7 @@ export default function ResetPasswordPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState(false);
+  const isOffline = !navigator.onLine;
 
   const passwordValid = useMemo(() => ({
     length: password.length >= 8,
@@ -39,6 +40,8 @@ export default function ResetPasswordPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isOffline) return;
+
     setError("");
 
     if (!allValid) {
@@ -70,6 +73,12 @@ export default function ResetPasswordPage() {
     <div className="max-w-md mx-auto p-6 bg-white rounded shadow mt-10">
       <h1 className="text-2xl font-bold mb-4">Reset Your Password</h1>
 
+      {isOffline && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded">
+          ⚠️ You’re currently offline. Password resets require an internet connection.
+        </div>
+      )}
+
       {success ? (
         <p className="text-green-600">✅ Password updated! Redirecting to login...</p>
       ) : (
@@ -82,6 +91,7 @@ export default function ResetPasswordPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
+              disabled={isOffline}
             />
             {password && (
               <p className={clsx("text-sm mt-1", strengthColor)}>
@@ -98,6 +108,7 @@ export default function ResetPasswordPage() {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               required
+              disabled={isOffline}
             />
             {!passwordsMatch && confirm && (
               <p className="text-red-600 text-sm mt-1">Passwords do not match</p>
@@ -120,7 +131,7 @@ export default function ResetPasswordPage() {
           <Button
             type="submit"
             className="w-full"
-            disabled={!allValid || !passwordsMatch}
+            disabled={isOffline || !allValid || !passwordsMatch}
           >
             Reset Password
           </Button>

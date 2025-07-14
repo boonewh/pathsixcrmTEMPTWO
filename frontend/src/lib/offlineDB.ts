@@ -5,6 +5,8 @@ import {
   OfflineLead, 
   OfflineProject, 
   OfflineInteraction, 
+  OfflineUser,
+  OfflineContact,
   SyncOperation,
   ConflictData
 } from '@/types/offline';
@@ -17,6 +19,8 @@ export class OfflineDatabase extends Dexie {
   leads!: Table<OfflineLead>;
   projects!: Table<OfflineProject>;
   interactions!: Table<OfflineInteraction>;
+  users!: Table<OfflineUser>;
+  contacts!: Table<OfflineContact>;
   syncQueue!: Table<SyncOperation>;
   conflicts!: Table<ConflictData>;
   metadata!: Table<{ key: string; value: any }>;
@@ -74,9 +78,11 @@ export class OfflineDatabase extends Dexie {
     });
 
     this.version(4).stores({
+      users: 'id, email, roles, created_at, _lastModified, _version, _pending, _deleted',
       clients: 'id, name, email, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
       leads: 'id, name, email, lead_status, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
       projects: 'id, project_name, project_status, client_id, lead_id, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
+      contacts: 'id, client_id, lead_id, email, phone, created_at, _lastModified, _syncedAt, _version, _pending, _deleted',
       interactions: 'id, client_id, lead_id, project_id, contact_date, follow_up, _lastModified, _syncedAt, _version, _pending, _deleted',
       syncQueue: 'id, entityType, status, timestamp, nextRetryAt, retryCount, localId',
       conflicts: 'operationId, entityType, entityId, timestamp',
@@ -97,15 +103,15 @@ export class OfflineDatabase extends Dexie {
     try {
       switch (entityType) {
         case 'clients':
-          // Clean up interactions and projects
           await this.interactions.where('client_id').equals(entityId).delete();
           await this.projects.where('client_id').equals(entityId).delete();
+          await this.contacts.where('client_id').equals(entityId).delete(); // 👈 Add this
           break;
-        
+
         case 'leads':
-          // Clean up interactions and projects
           await this.interactions.where('lead_id').equals(entityId).delete();
           await this.projects.where('lead_id').equals(entityId).delete();
+          await this.contacts.where('lead_id').equals(entityId).delete(); // 👈 Add this
           break;
         
         case 'projects':
@@ -121,11 +127,12 @@ export class OfflineDatabase extends Dexie {
   // Get storage statistics
   async getStorageStats() {
     try {
-      const [clientCount, leadCount, projectCount, interactionCount, queueCount] = await Promise.all([
+      const [clientCount, leadCount, projectCount, interactionCount, userCount, queueCount] = await Promise.all([
         this.clients.count(),
         this.leads.count(),
         this.projects.count(),
         this.interactions.count(),
+        this.users.count(),
         this.syncQueue.where('status').anyOf(['pending', 'failed']).count()
       ]);
 
@@ -137,6 +144,7 @@ export class OfflineDatabase extends Dexie {
         leads: leadCount,
         projects: projectCount,
         interactions: interactionCount,
+        users: userCount,
         pendingSync: queueCount,
         storageUsed: estimate?.usage || 0,
         storageQuota: estimate?.quota || 0,

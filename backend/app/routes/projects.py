@@ -38,9 +38,38 @@ async def list_projects():
         query = session.query(Project).options(
             joinedload(Project.client),
             joinedload(Project.lead)
-        ).filter(
+        ).join(Client, isouter=True).join(Lead, isouter=True).filter(
             Project.tenant_id == user.tenant_id,
-            Project.created_by == user.id
+            or_(
+                # Client assigned to user
+                and_(
+                    Project.client_id != None,
+                    or_(
+                        Client.assigned_to == user.id,
+                        and_(
+                            Client.assigned_to == None,
+                            Client.created_by == user.id
+                        )
+                    )
+                ),
+                # Lead assigned to user
+                and_(
+                    Project.lead_id != None,
+                    or_(
+                        Lead.assigned_to == user.id,
+                        and_(
+                            Lead.assigned_to == None,
+                            Lead.created_by == user.id
+                        )
+                    )
+                ),
+                # Unattached project created by user
+                and_(
+                    Project.client_id == None,
+                    Project.lead_id == None,
+                    Project.created_by == user.id
+                )
+            )
         )
 
         # Apply sorting
@@ -304,6 +333,7 @@ async def get_project_interactions(project_id):
     finally:
         session.close()
 
+
 @projects_bp.route("/all", methods=["GET"])
 @requires_auth(roles=["admin"])
 async def list_all_projects():
@@ -330,7 +360,7 @@ async def list_all_projects():
         if user_email:
             query = query.filter(
                 or_(
-                    # Client projects
+                    # ✅ Client-based filtering
                     and_(
                         Project.client_id != None,
                         or_(
@@ -338,13 +368,19 @@ async def list_all_projects():
                             Project.client.has(Client.created_by_user.has(User.email == user_email))
                         )
                     ),
-                    # Lead projects
+                    # ✅ Lead-based filtering
                     and_(
                         Project.lead_id != None,
                         or_(
                             Project.lead.has(Lead.assigned_user.has(User.email == user_email)),
                             Project.lead.has(Lead.created_by_user.has(User.email == user_email))
                         )
+                    ),
+                    # ✅ Unattached projects created by selected user
+                    and_(
+                        Project.client_id == None,
+                        Project.lead_id == None,
+                        Project.created_by_user.has(User.email == user_email)
                     )
                 )
             )
@@ -390,7 +426,7 @@ async def list_all_projects():
                 "lead_name": p.lead.name if p.lead else None,
                 "assigned_to_email": assigned_to_email,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
-                # NEW: Include contact fields in admin view
+                # Include contact fields
                 "primary_contact_name": p.primary_contact_name,
                 "primary_contact_title": p.primary_contact_title,
                 "primary_contact_email": p.primary_contact_email,
@@ -411,6 +447,8 @@ async def list_all_projects():
         return response
     finally:
         session.close()
+
+
 
 @projects_bp.route("/by-client/<int:client_id>", methods=["GET"])
 @requires_auth()

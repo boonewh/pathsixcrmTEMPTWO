@@ -1,7 +1,10 @@
 import { useEffect, useState, useRef } from "react";
 import { useAuth } from "@/authContext";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
 import { MoreVertical } from "lucide-react";
 import { apiFetch } from "@/lib/api";
+import toast from "react-hot-toast";
 
 interface User {
   id: number;
@@ -13,28 +16,59 @@ interface User {
 
 export default function AdminUsersPage() {
   const { token, user: currentUser } = useAuth();
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { listEntities } = useLocalEntityStore();
+
   const [users, setUsers] = useState<User[]>([]);
   const [error, setError] = useState("");
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("user");
   const [showForm, setShowForm] = useState(false);
+
   const [openMenuId, setOpenMenuId] = useState<number | null>(null);
   const menuRefs = useRef<{ [key: number]: HTMLDivElement | null }>({});
   const [editingUserId, setEditingUserId] = useState<number | null>(null);
   const [editedEmail, setEditedEmail] = useState<string>("");
 
   useEffect(() => {
-    apiFetch("/users/", {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load users");
-        return res.json();
-      })
-      .then(setUsers)
-      .catch((err) => setError(err.message));
-  }, [token]);
+    if (!authReady) return;
+
+    const fetchUsers = async () => {
+      setError("");
+      try {
+        const shouldUseOffline = !canMakeAPICall || !navigator.onLine;
+
+        if (!shouldUseOffline) {
+          const res = await apiFetch("/users/", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (!res.ok) throw new Error("Failed to load users");
+
+          const data = await res.json();
+          setUsers(data);
+          setIsOfflineMode(false);
+        } else {
+          const result = await listEntities("users", { page: 1, perPage: 100 });
+          if (result.success && result.data) {
+            setUsers(result.data.items || []);
+            setIsOfflineMode(true);
+          } else {
+            throw new Error(result.error || "Offline load failed");
+          }
+        }
+      } catch (err: any) {
+        setError(err.message || "Failed to load users");
+        setUsers([]);
+        setIsOfflineMode(true);
+      }
+    };
+
+    fetchUsers();
+  }, [token, authReady, canMakeAPICall, listEntities]);
 
   const handleCreate = async () => {
     const res = await apiFetch("/users/", {
@@ -53,6 +87,7 @@ export default function AdminUsersPage() {
       setPassword("");
       setRole("user");
       setShowForm(false);
+      toast.success("User created");
     } else {
       const { error } = await res.json();
       setError(error || "Failed to create user");
@@ -83,7 +118,7 @@ export default function AdminUsersPage() {
   useEffect(() => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [openMenuId]);
 
   const handleChangeRole = async (id: number, newRole: string) => {
     const res = await apiFetch(`/users/${id}/roles`, {
@@ -119,14 +154,12 @@ export default function AdminUsersPage() {
 
     if (res.ok) {
       const updated = await res.json();
-      console.log("Updated user response:", updated);
-
       setUsers((prev) =>
         prev.map((u) =>
           u.id === id
             ? {
                 ...u,
-                email: updated.email || editedEmail, // fallback if backend response is empty
+                email: updated.email || editedEmail,
               }
             : u
         )
@@ -138,7 +171,6 @@ export default function AdminUsersPage() {
       alert(error || "Failed to update email");
     }
   };
-
 
   const activeUsers = users.filter((u) => u.is_active);
   const inactiveUsers = users.filter((u) => !u.is_active);
@@ -154,6 +186,12 @@ export default function AdminUsersPage() {
           {showForm ? "Cancel" : "+ New User"}
         </button>
       </div>
+
+      {isOfflineMode && (
+        <p className="text-sm text-yellow-600">
+          ⚠️ Offline mode – showing cached data only.
+        </p>
+      )}
 
       {showForm && (
         <div className="space-y-4 border p-4 bg-white rounded shadow-sm">
@@ -229,7 +267,6 @@ export default function AdminUsersPage() {
                 menuRefs.current[user.id] = el;
               }}
             >
-
               <button
                 onClick={() =>
                   setOpenMenuId((prev) => (prev === user.id ? null : user.id))
@@ -256,7 +293,6 @@ export default function AdminUsersPage() {
                       Promote to Admin
                     </button>
                   )}
-
                   <button
                     onClick={() => handleToggleActive(user.id)}
                     className="block w-full text-left px-4 py-2 text-sm hover:bg-gray-100 text-yellow-600"
@@ -312,7 +348,6 @@ export default function AdminUsersPage() {
                       {user.roles[0]}
                     </span>
                   </div>
-
                   <p className="text-xs text-gray-400">
                     Created: {new Date(user.created_at).toLocaleString()}
                   </p>
@@ -324,7 +359,6 @@ export default function AdminUsersPage() {
                     menuRefs.current[user.id] = el;
                   }}
                 >
-
                   <button
                     onClick={() =>
                       setOpenMenuId((prev) => (prev === user.id ? null : user.id))

@@ -24,6 +24,7 @@ import AdminImportPage from "./pages/AdminImportPage";
 import { ErrorBoundary } from "./components/ErrorBoundary";
 import ProjectDetailPage from "./pages/ProjectDetailPage";
 import OfflineTestPage from "./pages/OfflineTestPage";
+import InfoPage from "./pages/InfoPage";
 
 function App() {
   return (
@@ -56,6 +57,7 @@ function App() {
           <Route path="/admin/import" element={<AdminImportPage />} />
           <Route path="/projects/:id" element={<ProjectDetailPage />} />
           <Route path="/offline-test" element={<OfflineTestPage />} />
+          <Route path="/status" element={<InfoPage />} />
         </Route>
         {/* Catch all */}
         <Route path="*" element={<NotFound />} />

@@ -1,5 +1,7 @@
 // frontend/src/types/offline.ts
-import { Client, Lead, Project, Interaction } from '../types';
+import { Client, Lead, Project, Interaction, Contact } from '../types';
+import type { EntityType } from "@/lib/validation";
+
 
 // Base offline entity interface that extends all CRM entities
 export interface OfflineEntity {
@@ -11,11 +13,25 @@ export interface OfflineEntity {
   updated_at?: number;
 }
 
+export interface OfflineUser {
+  id: number;
+  email: string;
+  roles: string[];
+  created_at: string;
+  _version?: number;
+  _pending?: boolean;
+  _deleted?: boolean;
+  _lastModified?: number;
+  _syncedAt?: number;
+}
+
+export type OfflineContact = Omit<Contact, 'id'> & OfflineEntity & { id?: number | string };
+
 // Enhanced sync operation with retry and conflict handling
 export interface SyncOperation {
   id: string;
   operation: 'CREATE' | 'UPDATE' | 'DELETE';
-  entityType: 'clients' | 'leads' | 'projects' | 'interactions';
+  entityType: EntityType;
   entityId: number | string;
   localId?: string; // For CREATE operations before server assignment
   data: any;

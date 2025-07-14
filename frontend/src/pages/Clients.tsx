@@ -488,10 +488,21 @@ export default function Clients() {
     }
   }, [user, canMakeAPICall, token]);
 
-  const filteredClients = clients.filter(client => {
-    if (typeFilter !== 'all' && client.type !== typeFilter) return false;
-    return true;
-  });
+  const filteredClients = (() => {
+    if (isOfflineMode) {
+      return clients.filter(client => {
+        if (typeFilter !== 'all' && client.type !== typeFilter) return false;
+        if (client.assigned_to) return client.assigned_to === user?.id;
+        return client.created_by === user?.id;
+      });
+    } else {
+      return clients.filter(client => {
+        if (typeFilter !== 'all' && client.type !== typeFilter) return false;
+        return true;
+      });
+    }
+  })();
+
 
   const sortedClients = sortData(filteredClients);
   const clearAllFilters = () => setTypeFilter('all');
@@ -688,7 +699,14 @@ export default function Clients() {
                 editing
                 onSave={handleSave}
                 onCancel={handleCancel}
-                editForm={<CompanyForm form={form} setForm={setForm} />}
+                editForm={
+                  <CompanyForm
+                    form={form}
+                    setForm={setForm}
+                    onSave={handleSave}
+                    onCancel={handleCancel}
+                  />
+                }
               />
             </div>
           )}
@@ -712,7 +730,14 @@ export default function Clients() {
                   onSave={handleSave}
                   onCancel={handleCancel}
                   onDelete={() => handleDelete(client.id)}
-                  editForm={<CompanyForm form={form} setForm={setForm} />}
+                  editForm={
+                    <CompanyForm
+                      form={form}
+                      setForm={setForm}
+                      onSave={handleSave}
+                      onCancel={handleCancel}
+                    />
+                  }
                   details={
                     <ul className="text-sm text-gray-600 space-y-2">
                       {client.contact_person && (
@@ -950,28 +975,18 @@ export default function Clients() {
                 </button>
               </div>
               
-              <CompanyForm form={form} setForm={setForm} />
-              
-              <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    handleCancel();
-                  }}
-                  className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    await handleSave();
-                    setShowEditModal(false);
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Save Changes
-                </button>
-              </div>
+              <CompanyForm
+                form={form}
+                setForm={setForm}
+                onSave={async () => {
+                  await handleSave();
+                  setShowEditModal(false);
+                }}
+                onCancel={() => {
+                  setShowEditModal(false);
+                  handleCancel();
+                }}
+              /> 
             </div>
           </div>
         </div>

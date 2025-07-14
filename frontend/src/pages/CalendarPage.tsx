@@ -1,3 +1,4 @@
+// CalendarPage.tsx
 import { useEffect, useState, useRef } from "react";
 import FullCalendar from "@fullcalendar/react";
 import { Calendar } from "@fullcalendar/core";
@@ -8,8 +9,11 @@ import { useAuth } from "@/authContext";
 import InteractionModal from "@/components/ui/InteractionModal";
 import { Interaction } from "@/types";
 import { apiFetch } from "@/lib/api";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
+import toast from "react-hot-toast";
 
-// TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
 
 interface CalendarEvent {
@@ -26,41 +30,42 @@ interface CalendarEvent {
     secondary_phone?: string;
     secondary_phone_label?: "work" | "mobile";
     profile_link?: string;
-    entity_type?: string; // Add entity type for styling
+    entity_type?: string;
+    followup_status?: string;
   };
 }
 
 export default function CalendarPage() {
   const { token } = useAuth();
+  const { canMakeAPICall } = useAuthReady();
+  const { updateEntity } = useLocalEntityStore();
+  const { queueOperation } = useSyncQueue();
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [selectedEvent, setSelectedEvent] = useState<CalendarEvent | null>(null);
-  const [filterType, setFilterType] = useState<"all" | "client" | "lead" | "project">("all"); // Add project option
+  const [filterType, setFilterType] = useState<"all" | "client" | "lead" | "project">("all");
   const [loading, setLoading] = useState(true);
   const calendarRef = useRef<FullCalendar>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
+  const fetchEvents = async () => {
+    setLoading(true);
+    try {
       const res = await apiFetch("/interactions/", {
         headers: { Authorization: `Bearer ${token}` },
       });
-
       const data = await res.json();
-      // Handle both paginated response and direct array
       const interactions: Interaction[] = data.interactions || data;
+
       const filtered = interactions.filter((i) => {
         if (!i.follow_up) return false;
         if (filterType === "client") return !!i.client_id;
         if (filterType === "lead") return !!i.lead_id;
-        if (filterType === "project") return !!i.project_id; // Add project filtering
+        if (filterType === "project") return !!i.project_id;
         return true;
       });
 
       const eventList: CalendarEvent[] = filtered.map((i) => {
-        // Determine entity info for proper display
         let entityName = "Unknown Entity";
         let entityType = "unknown";
-        
         if (i.client_name) {
           entityName = i.client_name;
           entityType = "client";
@@ -87,37 +92,30 @@ export default function CalendarPage() {
             secondary_phone_label: i.secondary_phone_label,
             profile_link: i.profile_link,
             followup_status: i.followup_status,
-            entity_type: entityType, // Store entity type for styling
+            entity_type: entityType,
           },
         };
       });
 
       setEvents(eventList);
+    } catch (err) {
+      toast.error("Failed to load follow-up events");
+    } finally {
       setLoading(false);
-    };
+    }
+  };
 
-    fetchData();
+  useEffect(() => {
+    fetchEvents();
   }, [token, filterType]);
 
   function handleEventClick(arg: any) {
     const { event } = arg;
-
     const customEvent: CalendarEvent = {
       id: event.id,
       title: event.title,
       start: event.start!,
-      extendedProps: {
-        outcome: event.extendedProps["outcome"],
-        notes: event.extendedProps["notes"],
-        contact_person: event.extendedProps["contact_person"],
-        email: event.extendedProps["email"],
-        phone: event.extendedProps["phone"],
-        phone_label: event.extendedProps["phone_label"],
-        secondary_phone: event.extendedProps["secondary_phone"],
-        secondary_phone_label: event.extendedProps["secondary_phone_label"],
-        profile_link: event.extendedProps["profile_link"],
-        entity_type: event.extendedProps["entity_type"],
-      },
+      extendedProps: { ...event.extendedProps },
     };
     setSelectedEvent(customEvent);
   }
@@ -126,6 +124,31 @@ export default function CalendarPage() {
     const id = arg.event.id;
     const newDate = arg.event.start;
 
+    if (!newDate) return;
+
+    const follow_up = newDate.toISOString();
+
+    if (!canMakeAPICall || !navigator.onLine) {
+      // 🔌 Offline fallback
+      try {
+        const result = await updateEntity("interactions", parseInt(id), { follow_up });
+        if (result.success) {
+          await queueOperation("UPDATE", "interactions", parseInt(id), { follow_up });
+          toast.success("Follow-up rescheduled and queued for sync");
+          fetchEvents();
+        } else {
+          toast.error("Failed to reschedule offline");
+          arg.revert();
+        }
+      } catch (err) {
+        console.error(err);
+        toast.error("Offline error");
+        arg.revert();
+      }
+      return;
+    }
+
+    // 🌐 Online mode
     try {
       const res = await apiFetch(`/interactions/${id}`, {
         method: "PUT",
@@ -133,29 +156,18 @@ export default function CalendarPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ follow_up: newDate.toISOString() }),
+        body: JSON.stringify({ follow_up }),
       });
 
       if (!res.ok) {
-        alert("Failed to update follow-up.");
+        toast.error("Failed to update follow-up");
         arg.revert();
       }
     } catch (err) {
       console.error(err);
-      alert("Error updating follow-up.");
+      toast.error("Error updating follow-up");
       arg.revert();
     }
-  }
-
-  function generateGoogleCalendarUrl(event: CalendarEvent): string {
-    const title = encodeURIComponent(event.title);
-    const details = encodeURIComponent(
-      `Outcome: ${event.extendedProps.outcome}\nNotes: ${event.extendedProps.notes}`
-    );
-    const start = new Date(event.start).toISOString().replace(/[-:]|\.\d{3}/g, "");
-    const end = start;
-
-    return `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${start}/${end}&details=${details}`;
   }
 
   function renderEventContent(arg: any) {
@@ -163,21 +175,14 @@ export default function CalendarPage() {
     const isCompleted = arg.event.extendedProps.followup_status === "completed";
     const entityType = arg.event.extendedProps.entity_type;
 
-    // Color coding by entity type
-    let style = "text-blue-600 font-semibold"; // Default for clients
-    if (entityType === "lead") {
-      style = "text-green-600 font-semibold";
-    } else if (entityType === "project") {
-      style = "text-orange-600 font-semibold";
-    }
-
-    // Override with status colors
+    let style = "text-blue-600 font-semibold";
+    if (entityType === "lead") style = "text-green-600 font-semibold";
+    if (entityType === "project") style = "text-orange-600 font-semibold";
     if (isCompleted) style = "text-gray-500 font-semibold line-through";
     else if (isOverdue) style = "text-red-600 font-semibold";
 
     return (
       <div className={`${style} truncate max-w-full overflow-hidden whitespace-nowrap`}>
-        {/* Add entity type emoji */}
         {entityType === "client" && "🏢 "}
         {entityType === "lead" && "🎯 "}
         {entityType === "project" && "🚧 "}
@@ -203,7 +208,7 @@ export default function CalendarPage() {
         <label className="mr-2 font-semibold">Filter by:</label>
         <select
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value as "all" | "client" | "lead" | "project")}
+          onChange={(e) => setFilterType(e.target.value as any)}
           className="border rounded px-2 py-1"
         >
           <option value="all">All Entities</option>
@@ -213,7 +218,6 @@ export default function CalendarPage() {
         </select>
       </div>
 
-      {/* Add legend for entity types */}
       <div className="mb-4 flex gap-4 text-sm">
         <div className="flex items-center gap-1">
           <span className="text-blue-600">🏢</span>
@@ -259,7 +263,7 @@ export default function CalendarPage() {
           />
         </div>
       )}
-      
+
       {selectedEvent && (
         <InteractionModal
           title={`${selectedEvent.extendedProps.entity_type === "client" ? (USE_ACCOUNT_LABELS ? "Account" : "Client") : 
@@ -276,7 +280,7 @@ export default function CalendarPage() {
           secondary_phone_label={selectedEvent.extendedProps.secondary_phone_label}
           profile_link={selectedEvent.extendedProps.profile_link}
           onClose={() => setSelectedEvent(null)}
-          calendarLink={generateGoogleCalendarUrl(selectedEvent)}
+          calendarLink={""} // optionally add Google Calendar link here
           icsLink={`${import.meta.env.VITE_API_BASE_URL}/interactions/${selectedEvent.id}/calendar.ics`}
         />
       )}

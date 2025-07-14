@@ -26,6 +26,8 @@ export interface Client {
   zip: string;
   notes?: string;
   created_at: string;
+  assigned_to?: number | null;
+  created_by?: number | null;
   accounts?: Account[];
   type?: string;
 }
@@ -77,6 +79,7 @@ export interface Lead {
   zip: string;
   notes?: string;
   created_at: string;
+  created_by?: number | null;
   assigned_to?: number;
   assigned_to_name?: string;
   created_by_name?: string;
@@ -98,7 +101,7 @@ export interface Project {
   lead_id?: number;
   client_name?: string;
   lead_name?: string;
-  created_at?: string;
+  created_by?: number | null;
   notes?: string;
   // NEW: Contact fields for standalone projects
   primary_contact_name?: string;
@@ -106,4 +109,20 @@ export interface Project {
   primary_contact_email?: string;
   primary_contact_phone?: string;
   primary_contact_phone_label?: "work" | "mobile" | "home";
+}
+
+export interface Contact {
+  id: number;
+  first_name: string;
+  last_name: string;
+  title?: string;
+  email?: string;
+  phone?: string;
+  phone_label?: string;
+  secondary_phone?: string;
+  secondary_phone_label?: string;
+  notes?: string;
+  client_id?: number;
+  lead_id?: number;
+  created_at?: string;
 }

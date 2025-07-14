@@ -5,6 +5,9 @@ import { Link, useSearchParams } from "react-router-dom";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
 import { formatPhoneNumber } from "@/lib/phoneUtils";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
 
 interface AdminLead {
   id: number;
@@ -27,46 +30,56 @@ interface User {
 }
 
 export default function AdminLeadsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [leads, setLeads] = useState<AdminLead[]>([]);
   const [total, setTotal] = useState(0);
   const [users, setUsers] = useState<User[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   const selectedEmail = searchParams.get("user") || "";
 
-  // Use pagination hook with admin-specific key
-  const {
-    perPage,
-    sortOrder,
-    currentPage,
-    setCurrentPage,
-    updatePerPage,
-    updateSortOrder,
-  } = usePagination('admin_leads');
+  const { perPage, sortOrder, currentPage, setCurrentPage, updatePerPage, updateSortOrder } =
+    usePagination("admin_leads");
 
-  // Load users on component mount
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { listEntities } = useLocalEntityStore();
+  const { queueOperation } = useSyncQueue();
+
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const userRes = await apiFetch("/users/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const usersData = await userRes.json();
-        setUsers(usersData.filter((u: User) => u.is_active));
+        const shouldUseOffline = !canMakeAPICall || !navigator.onLine;
+
+        if (!shouldUseOffline) {
+          const userRes = await apiFetch("/users/", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const usersData = await userRes.json();
+          setUsers(usersData.filter((u: User) => u.is_active));
+        } else {
+          const result = await listEntities("users", { page: 1, perPage: 100 });
+          if (result.success && result.data) {
+            setUsers(result.data.items.filter((u: User) => u.is_active));
+            setIsOfflineMode(true);
+          } else {
+            throw new Error(result.error || "Offline load failed");
+          }
+        }
       } catch {
         setError("Failed to load users");
+        setUsers([]);
       }
     };
 
     fetchUsers();
-  }, [token]);
+  }, [token, canMakeAPICall, listEntities]);
 
-  // Load leads when user selection or pagination changes
+
   useEffect(() => {
-    const fetchLeads = async () => {
+    const fetchLeads = async (forceOffline = false) => {
       if (!selectedEmail) {
         setLeads([]);
         setTotal(0);
@@ -75,31 +88,63 @@ export default function AdminLeadsPage() {
       }
 
       setLoading(true);
-      try {
-        const leadRes = await apiFetch(
-          `/leads/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(selectedEmail)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+      setError("");
 
-        const leadsData = await leadRes.json();
-        setLeads(leadsData.leads);
-        setTotal(leadsData.total);
-        setError("");
-      } catch {
-        setError("Failed to load leads");
+      try {
+        const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
+
+        if (!shouldUseOffline && authReady) {
+          try {
+            const res = await apiFetch(
+              `/leads/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(
+                selectedEmail
+              )}`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            );
+
+            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            const data = await res.json();
+            setLeads(data.leads);
+            setTotal(data.total);
+            setIsOfflineMode(false);
+            return;
+          } catch (err) {
+            console.warn("API fetch failed, falling back to offline:", err);
+          }
+        }
+
+        // Offline fallback
+        const result = await listEntities("leads", { page: currentPage, perPage });
+
+        if (result.success && result.data) {
+          const filtered = result.data.items.filter(
+            (l: any) =>
+              l.created_by_name === selectedEmail || l.assigned_to_name === selectedEmail
+          );
+          setLeads(filtered);
+          setTotal(filtered.length);
+          setIsOfflineMode(true);
+        } else {
+          throw new Error(result.error || "Offline load failed");
+        }
+      } catch (err: any) {
+        console.error("Load failed:", err);
+        setError("Unable to load leads.");
         setLeads([]);
         setTotal(0);
+        setIsOfflineMode(true);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchLeads();
-  }, [token, selectedEmail, currentPage, perPage, sortOrder]);
+    if (authReady) {
+      fetchLeads();
+    }
+  }, [token, selectedEmail, currentPage, perPage, sortOrder, authReady, canMakeAPICall]);
 
-  // Reset to page 1 when user selection changes
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedEmail, setCurrentPage]);
@@ -112,6 +157,13 @@ export default function AdminLeadsPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-blue-800">Admin: Leads Overview</h1>
+
+      {isOfflineMode && (
+        <p className="text-sm text-yellow-600">
+          ⚠️ Offline mode – showing cached data only.
+        </p>
+      )}
+
       {error && <p className="text-red-500">{error}</p>}
 
       <div className="max-w-sm">
@@ -135,7 +187,6 @@ export default function AdminLeadsPage() {
 
       {selectedEmail && (
         <>
-          {/* Pagination Controls at top */}
           <PaginationControls
             currentPage={currentPage}
             perPage={perPage}
@@ -148,7 +199,6 @@ export default function AdminLeadsPage() {
             className="border-b pb-4"
           />
 
-          {/* Content */}
           {loading ? (
             <div className="text-gray-500 text-center py-10">Loading...</div>
           ) : (
@@ -186,13 +236,18 @@ export default function AdminLeadsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2">{lead.email ?? "—"}</td>
-                      <td className="px-4 py-2">{lead.phone ? formatPhoneNumber(lead.phone) : "—"}</td>
+                      <td className="px-4 py-2">
+                        {lead.phone ? formatPhoneNumber(lead.phone) : "—"}
+                      </td>
                       <td className="px-4 py-2">
                         <span className={`inline-block px-2 py-1 text-xs rounded ${
-                          lead.lead_status === 'open' ? 'bg-green-100 text-green-800' :
-                          lead.lead_status === 'converted' ? 'bg-blue-100 text-blue-800' :
-                          lead.lead_status === 'lost' ? 'bg-red-100 text-red-800' :
-                          'bg-gray-100 text-gray-800'
+                          lead.lead_status === "open"
+                            ? "bg-green-100 text-green-800"
+                            : lead.lead_status === "converted"
+                            ? "bg-blue-100 text-blue-800"
+                            : lead.lead_status === "lost"
+                            ? "bg-red-100 text-red-800"
+                            : "bg-gray-100 text-gray-800"
                         }`}>
                           {lead.lead_status ?? "—"}
                         </span>
@@ -200,10 +255,9 @@ export default function AdminLeadsPage() {
                       <td className="px-4 py-2">{lead.type ?? "—"}</td>
                       <td className="px-4 py-2">{lead.assigned_to_name ?? "—"}</td>
                       <td className="px-4 py-2">
-                        {lead.created_at 
+                        {lead.created_at
                           ? new Date(lead.created_at).toLocaleDateString()
-                          : "—"
-                        }
+                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -219,7 +273,6 @@ export default function AdminLeadsPage() {
             </div>
           )}
 
-          {/* Pagination Controls at bottom */}
           {total > 0 && (
             <PaginationControls
               currentPage={currentPage}

@@ -4,7 +4,7 @@ import { offlineDB } from "@/lib/offlineDB";
 import { v4 as uuidv4 } from "uuid";
 import { Table } from "dexie";
 
-type EntityType = 'clients' | 'leads' | 'projects' | 'interactions';
+type EntityType = 'clients' | 'leads' | 'projects' | 'interactions' | 'users' | "contacts";
 
 export interface DatabaseStats {
   clients: number;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/authContext";
 import EntityCard from "@/components/ui/EntityCard";
-import { Project } from "@/types";
+import { Project, Client, Lead } from "@/types";
 import ProjectForm from "@/components/ui/ProjectForm";
 import { FormWrapper } from "@/components/ui/FormWrapper";
 import { apiFetch } from "@/lib/api";
@@ -12,6 +12,12 @@ import { useSorting, legacySortToUnified, unifiedToLegacySort } from "@/hooks/us
 import StatusTabs from "@/components/ui/StatusTabs";
 import ProjectsTable from "@/components/ui/ProjectsTable";
 import { LayoutGrid, List, Plus, Filter, ChevronDown, ChevronUp } from "lucide-react";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
+import toast from "react-hot-toast";
+import { useMemo } from "react";
+
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
@@ -41,11 +47,12 @@ const getDefaultFilterVisibility = () => {
 };
 
 export default function Projects() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [projects, setProjects] = useState<Project[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   // Use pagination hook with view mode support
   const {
@@ -90,9 +97,14 @@ export default function Projects() {
   const [form, setForm] = useState<Partial<Project>>({});
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [clients, setClients] = useState<{ id: number; name: string }[]>([]);
-  const [leads, setLeads] = useState<{ id: number; name: string }[]>([]);
+  const [clients, setClients] = useState<Client[]>([]);
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [error, setError] = useState("");
+
+  // 🔥 NEW: Offline hooks
+  const { createEntity, updateEntity, deleteEntity, listEntities } = useLocalEntityStore();
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { queueOperation } = useSyncQueue();
 
   // Update filter visibility on window resize
   useEffect(() => {
@@ -110,45 +122,159 @@ export default function Projects() {
     return () => window.removeEventListener('resize', handleResize);
   }, [showFilters]);
 
-  useEffect(() => {
-    const fetchAll = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const [projRes, clientRes, leadRes] = await Promise.all([
-          apiFetch(`/projects/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, { 
-            headers: { Authorization: `Bearer ${token}` } 
-          }),
-          apiFetch("/clients/", { headers: { Authorization: `Bearer ${token}` } }),
-          apiFetch("/leads/", { headers: { Authorization: `Bearer ${token}` } }),
-        ]);
+  // 🔥 NEW: Smart data fetching with offline fallback
+  const fetchProjects = async (forceOffline = false) => {
+    setLoading(true);
+    setError(""); // Clear any previous errors
 
-        const projectsData = await projRes.json();
-        const clients = await clientRes.json();
-        const leads = await leadRes.json();
+    try {
+      // Determine if we should use offline mode
+      const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
 
-        const leadsArray = leads.leads || leads;
-        const clientsArray = clients.clients || clients;
+      if (!shouldUseOffline && authReady) {
+        // Try API first
+        try {
+          console.log("📡 Attempting to fetch projects from API...");
+          const res = await apiFetch(`/projects/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
 
-        setProjects(projectsData.projects);
-        setTotal(projectsData.total);
-        setClients(clientsArray.map((c: any) => ({ id: c.id, name: c.name })));
-        setLeads(leadsArray.map((l: any) => ({ id: l.id, name: l.name })));
-      } catch (err: any) {
-        setError("Failed to load data");
-      } finally {
-        setLoading(false);
+          if (!res.ok) {
+            throw new Error(`API Error: ${res.status}`);
+          }
+
+          const data = await res.json();
+          setProjects(data.projects || []);
+          setTotal(data.total || 0);
+          setIsOfflineMode(false);
+          console.log("✅ Successfully fetched projects from API");
+          return;
+        } catch (apiError) {
+          console.warn("🌐 API fetch failed, falling back to offline:", apiError);
+          // Fall through to offline mode - don't set error here
+        }
       }
-    };
 
-    fetchAll();
-  }, [token, currentPage, perPage, sortOrder]);
+      // Use offline storage
+      console.log("💾 Fetching projects from offline storage...");
+      const result = await listEntities("projects", {
+        page: currentPage,
+        perPage,
+      });
+
+      if (result.success && result.data) {
+        setProjects(result.data.items || []);
+        setTotal(result.data.total || result.data.items.length);
+        setIsOfflineMode(true);
+        console.log(`💾 Loaded ${result.data.items.length} projects from offline storage`);
+      } else {
+        // Only show error if we can't load from offline storage either
+        console.error("❌ Failed to load from offline storage:", result.error);
+        setError("Unable to load data. Please check your connection and try again.");
+        setProjects([]);
+        setTotal(0);
+        setIsOfflineMode(true); // Still in offline mode
+      }
+
+    } catch (err) {
+      console.error("❌ Critical error loading projects:", err);
+      // Only show user-friendly error for critical failures
+      setError("Unable to load data. Please refresh the page.");
+      setProjects([]);
+      setTotal(0);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔥 NEW: Smart fetch for clients and leads with offline fallback
+  const fetchClientAndLeadData = async () => {
+    try {
+      if (canMakeAPICall && navigator.onLine) {
+        // Try API first
+        try {
+          const [clientRes, leadRes] = await Promise.all([
+            apiFetch("/clients/?per_page=1000", { headers: { Authorization: `Bearer ${token}` } }),
+            apiFetch("/leads/?per_page=1000", { headers: { Authorization: `Bearer ${token}` } }),
+          ]);
+
+          if (clientRes.ok && leadRes.ok) {
+            const clientsData = await clientRes.json();
+            const leadsData = await leadRes.json();
+
+            const leadsArray = leadsData.leads || leadsData;
+            const clientsArray = clientsData.clients || clientsData;
+
+            setClients(clientsArray); // full object with assigned_to, created_by, etc.
+            setLeads(leadsArray);
+
+            return;
+          }
+        } catch (apiError) {
+          console.warn("🌐 Failed to fetch clients/leads from API, falling back to offline");
+        }
+      }
+
+      // Use offline storage
+      const [clientResult, leadResult] = await Promise.all([
+        listEntities("clients", { page: 1, perPage: 1000 }),
+        listEntities("leads", { page: 1, perPage: 1000 }),
+      ]);
+
+      if (clientResult.success && clientResult.data) {
+        setClients(clientResult.data.items as Client[]);
+      }
+
+      if (leadResult.success && leadResult.data) {
+        setLeads(leadResult.data.items as Lead[]);
+      }
+
+    } catch (err) {
+      console.warn("Failed to load clients/leads:", err);
+      // Don't error out - projects can still work without this data
+    }
+  };
+
+  // Load data when component mounts or dependencies change
+  useEffect(() => {
+    if (!authReady) {
+      console.log("⏳ Waiting for auth to be ready...");
+      return;
+    }
+
+    fetchProjects();
+    fetchClientAndLeadData();
+  }, [authReady, currentPage, perPage, sortOrder]);
 
   // Filter projects by status
-  const filteredProjects = projects.filter(project => {
-    if (statusFilter === 'all') return true;
-    return project.project_status === statusFilter;
-  });
+  const filteredProjects = useMemo(() => {
+    if (!authReady || !user) return [];
+
+    if (!isOfflineMode) return projects;
+
+    return projects.filter((project) => {
+      if (project.created_by === user.id) return true;
+
+      const client = clients.find((c) => c.id === project.client_id);
+      if (client && client.assigned_to === user.id) return true;
+
+      const lead = leads.find((l) => l.id === project.lead_id);
+      if (lead && lead.assigned_to === user.id) return true;
+
+      return false;
+    });
+  }, [authReady, user, isOfflineMode, projects, clients, leads]);
+
+
+  useEffect(() => {
+  if (!authReady || !user) return;
+
+    console.log("🧪 Offline Clients:", clients);
+    console.log("🧪 Offline Leads:", leads);
+    console.log("🧪 User ID:", user.id);
+    console.log("🧪 Projects:", projects);
+  }, [clients, leads, projects, authReady, user]);
+
 
   // Apply unified sorting to filtered data
   const sortedProjects = sortData(filteredProjects);
@@ -165,48 +291,137 @@ export default function Projects() {
     setEditingId(null);
   };
 
+  // 🔥 NEW: Smart save with offline queueing
   const handleSave = async () => {
     try {
-      const method = creating ? "POST" : "PUT";
-      const url = creating ? "/projects/" : `/projects/${editingId}`;
+      setError(""); // Clear any previous errors
 
+      // Ensure project_worth is a number
       if (!form.project_worth) {
         form.project_worth = 0;
       }
-      
-      const res = await apiFetch(url, {
-        method,
-        headers: { Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
-      });
 
-      if (!res.ok) throw new Error("Failed to save project");
+      if (creating) {
+        // Create new project
+        if (canMakeAPICall && navigator.onLine) {
+          // Try API first
+          try {
+            const res = await apiFetch("/projects/", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+              body: JSON.stringify(form),
+            });
 
-      const updated = await apiFetch(`/projects/?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await updated.json();
-      setProjects(data.projects);
-      setTotal(data.total);
-      resetForm();
+            if (res.ok) {
+              await fetchProjects(); // Refresh data
+              resetForm();
+              toast.success('Project created successfully');
+              return;
+            }
+          } catch (apiError) {
+            console.warn("Create API failed, using offline mode:", apiError);
+            // Fall through to offline mode - don't show error
+          }
+        }
+
+        // Use offline storage
+        const result = await createEntity('projects', form);
+        if (result.success) {
+          // Queue for sync
+          if (result.data?.id) {
+            await queueOperation('CREATE', 'projects', result.data.id, form, result.data.id);
+          }
+          await fetchProjects(); // Refresh data
+          resetForm();
+          toast.success(`Project created ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+        } else {
+          throw new Error(result.error);
+        }
+      } else {
+        // Update existing project
+        if (!editingId) return;
+
+        if (canMakeAPICall && navigator.onLine) {
+          // Try API first
+          try {
+            const res = await apiFetch(`/projects/${editingId}`, {
+              method: "PUT",
+              headers: { Authorization: `Bearer ${token}` },
+              body: JSON.stringify(form),
+            });
+
+            if (res.ok) {
+              await fetchProjects(); // Refresh data
+              resetForm();
+              toast.success('Project updated successfully');
+              return;
+            }
+          } catch (apiError) {
+            console.warn("Update API failed, using offline mode:", apiError);
+            // Fall through to offline mode - don't show error
+          }
+        }
+
+        // Use offline storage
+        const result = await updateEntity('projects', editingId, form);
+        if (result.success) {
+          // Queue for sync
+          await queueOperation('UPDATE', 'projects', editingId, form);
+          await fetchProjects(); // Refresh data
+          resetForm();
+          toast.success(`Project updated ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+        } else {
+          throw new Error(result.error);
+        }
+      }
     } catch (err: any) {
-      setError(err.message || "Failed to save project");
+      const errorMessage = err.message || 'Failed to save project';
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
+  // 🔥 NEW: Smart delete with offline queueing
   const handleDelete = async (id: number) => {
     if (!confirm("Are you sure you want to delete this project?")) return;
 
-    const res = await apiFetch(`/projects/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    try {
+      setError(""); // Clear any previous errors
 
-    if (res.ok) {
-      setProjects((prev) => prev.filter((p) => p.id !== id));
-      setTotal((prev) => prev - 1);
-    } else {
-      alert("Failed to delete project");
+      if (canMakeAPICall && navigator.onLine) {
+        // Try API first
+        try {
+          const res = await apiFetch(`/projects/${id}`, {
+            method: "DELETE",
+            headers: { Authorization: `Bearer ${token}` },
+          });
+
+          if (res.ok) {
+            setProjects((prev) => prev.filter((p) => p.id !== id));
+            setTotal((prev) => prev - 1);
+            toast.success('Project deleted successfully');
+            return;
+          }
+        } catch (apiError) {
+          console.warn("Delete API failed, using offline mode:", apiError);
+          // Fall through to offline mode - don't show error
+        }
+      }
+
+      // Use offline storage
+      const result = await deleteEntity('projects', id);
+      if (result.success) {
+        // Queue for sync
+        await queueOperation('DELETE', 'projects', id, {});
+        await fetchProjects(); // Refresh data
+        toast.success(`Project deleted ${isOfflineMode ? 'and queued for sync' : 'successfully'}`);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      const errorMessage = err.message || 'Failed to delete project';
+      setError(errorMessage);
+      toast.error(errorMessage);
     }
   };
 
@@ -230,6 +445,24 @@ export default function Projects() {
 
   return (
     <div className="p-4 lg:p-6">
+      {/* 🔥 NEW: Offline Mode Indicator */}
+      {isOfflineMode && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <span className="text-sm text-yellow-800">
+              Working offline - changes will sync when connection is restored
+            </span>
+            <button
+              onClick={() => fetchProjects(false)}
+              className="ml-auto text-xs bg-yellow-200 hover:bg-yellow-300 px-2 py-1 rounded"
+            >
+              Retry Online
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
         <h1 className="text-2xl font-bold">Projects</h1>
@@ -268,7 +501,11 @@ export default function Projects() {
         </div>
       </div>
 
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+      {error && (
+        <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-red-800 text-sm">{error}</p>
+        </div>
+      )}
 
       {/* Collapsible Filters Panel */}
       {showFilters && (
@@ -369,6 +606,7 @@ export default function Projects() {
       <div className="mb-4 text-sm text-gray-600">
         <span className="font-medium">{sortedProjects.length}</span> of {projects.length} projects
         {statusFilter !== 'all' && <span className="text-blue-600"> • {statusFilter}</span>}
+        {isOfflineMode && <span className="text-yellow-600"> • Offline Mode</span>}
       </div>
 
       {/* Content */}
@@ -394,6 +632,8 @@ export default function Projects() {
                     setForm={setForm}
                     clients={clients}
                     leads={leads}
+                    onSave={handleSave}
+                    onCancel={resetForm}
                   />
                 }
               />
@@ -426,6 +666,8 @@ export default function Projects() {
                           setForm={setForm}
                           clients={clients}
                           leads={leads}
+                          onSave={handleSave}
+                          onCancel={resetForm}
                         />
                       </FormWrapper>
                     }
@@ -500,17 +742,17 @@ export default function Projects() {
               </div>
               <h3 className="text-lg font-medium text-gray-900 mb-2">No projects found</h3>
               <p className="text-gray-500 mb-4">
-                {statusFilter !== 'all' 
-                  ? `No projects with status "${statusFilter}". Try adjusting your filters.`
+                {activeFiltersCount > 0 
+                  ? "No projects match your current filters. Try adjusting your search criteria."
                   : "Get started by creating your first project."
                 }
               </p>
-              {statusFilter !== 'all' && (
+              {activeFiltersCount > 0 && (
                 <button
-                  onClick={() => setStatusFilter('all')}
+                  onClick={clearAllFilters}
                   className="text-blue-600 hover:text-blue-800 font-medium"
                 >
-                  Show all projects
+                  Clear all filters
                 </button>
               )}
             </div>
@@ -576,28 +818,15 @@ export default function Projects() {
                 setForm={setForm}
                 clients={clients}
                 leads={leads}
+                onSave={async () => {
+                  await handleSave();
+                  setShowEditModal(false);
+                }}
+                onCancel={() => {
+                  setShowEditModal(false);
+                  handleCancel();
+                }}
               />
-              
-              <div className="flex justify-end gap-2 mt-6 pt-4 border-t">
-                <button
-                  onClick={() => {
-                    setShowEditModal(false);
-                    handleCancel();
-                  }}
-                  className="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={async () => {
-                    await handleSave();
-                    setShowEditModal(false);
-                  }}
-                  className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Save Changes
-                </button>
-              </div>
             </div>
           </div>
         </div>

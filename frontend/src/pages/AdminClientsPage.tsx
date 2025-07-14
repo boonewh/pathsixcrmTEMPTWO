@@ -1,10 +1,13 @@
 import { useEffect, useState } from "react";
-import { useAuth } from "@/authContext";
+import { useAuth, userHasRole } from "@/authContext";
 import { apiFetch } from "@/lib/api";
 import { Link, useSearchParams } from "react-router-dom";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
 import { formatPhoneNumber } from "@/lib/phoneUtils";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
 
 interface AdminClient {
   id: number;
@@ -26,46 +29,56 @@ interface User {
 }
 
 export default function AdminClientsPage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [clients, setClients] = useState<AdminClient[]>([]);
   const [total, setTotal] = useState(0);
   const [users, setUsers] = useState<User[]>([]);
   const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   const selectedEmail = searchParams.get("user") || "";
 
-  // Use pagination hook with admin-specific key
-  const {
-    perPage,
-    sortOrder,
-    currentPage,
-    setCurrentPage,
-    updatePerPage,
-    updateSortOrder,
-  } = usePagination('admin_clients');
+  const { perPage, sortOrder, currentPage, setCurrentPage, updatePerPage, updateSortOrder } =
+    usePagination("admin_clients");
 
-  // Load users on component mount
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { listEntities } = useLocalEntityStore();
+  const { queueOperation } = useSyncQueue();
+
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const userRes = await apiFetch("/users/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const usersData = await userRes.json();
-        setUsers(usersData.filter((u: User) => u.is_active));
-      } catch {
+        const shouldUseOffline = !canMakeAPICall || !navigator.onLine;
+
+        if (!shouldUseOffline) {
+          const userRes = await apiFetch("/users/", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const usersData = await userRes.json();
+          setUsers(usersData.filter((u: User) => u.is_active));
+        } else {
+          const result = await listEntities("users", { page: 1, perPage: 100 });
+          if (result.success && result.data) {
+            setUsers(result.data.items.filter((u: User) => u.is_active));
+            setIsOfflineMode(true);
+          } else {
+            throw new Error(result.error || "Offline load failed");
+          }
+        }
+      } catch (err) {
         setError("Failed to load users");
+        setUsers([]);
       }
     };
 
     fetchUsers();
-  }, [token]);
+  }, [token, canMakeAPICall, listEntities]);
 
-  // Load clients when user selection or pagination changes
+
   useEffect(() => {
-    const fetchClients = async () => {
+    const fetchClients = async (forceOffline = false) => {
       if (!selectedEmail) {
         setClients([]);
         setTotal(0);
@@ -74,31 +87,63 @@ export default function AdminClientsPage() {
       }
 
       setLoading(true);
-      try {
-        const clientRes = await apiFetch(
-          `/clients/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(selectedEmail)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+      setError("");
 
-        const clientsData = await clientRes.json();
-        setClients(clientsData.clients);
-        setTotal(clientsData.total);
-        setError("");
-      } catch {
-        setError("Failed to load clients");
+      try {
+        const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
+
+        if (!shouldUseOffline && authReady) {
+          try {
+            const res = await apiFetch(
+              `/clients/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(
+                selectedEmail
+              )}`,
+              {
+                headers: { Authorization: `Bearer ${token}` },
+              }
+            );
+
+            if (!res.ok) throw new Error(`API error: ${res.status}`);
+            const data = await res.json();
+            setClients(data.clients);
+            setTotal(data.total);
+            setIsOfflineMode(false);
+            return;
+          } catch (err) {
+            console.warn("API fetch failed, falling back to offline:", err);
+          }
+        }
+
+        // Offline fallback
+        const result = await listEntities("clients", { page: currentPage, perPage });
+
+        if (result.success && result.data) {
+          const filtered = result.data.items.filter(
+            (c: any) =>
+              c.created_by_name === selectedEmail || c.assigned_to_name === selectedEmail
+          );
+          setClients(filtered);
+          setTotal(filtered.length);
+          setIsOfflineMode(true);
+        } else {
+          throw new Error(result.error || "Offline load failed");
+        }
+      } catch (err: any) {
+        console.error("Load failed:", err);
+        setError("Unable to load clients.");
         setClients([]);
         setTotal(0);
+        setIsOfflineMode(true);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchClients();
-  }, [token, selectedEmail, currentPage, perPage, sortOrder]);
+    if (authReady) {
+      fetchClients();
+    }
+  }, [token, selectedEmail, currentPage, perPage, sortOrder, authReady, canMakeAPICall]);
 
-  // Reset to page 1 when user selection changes
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedEmail, setCurrentPage]);
@@ -111,6 +156,13 @@ export default function AdminClientsPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-blue-800">Admin: Accounts Overview</h1>
+
+      {isOfflineMode && (
+        <p className="text-sm text-yellow-600">
+          ⚠️ Offline mode – showing cached data only.
+        </p>
+      )}
+
       {error && <p className="text-red-500">{error}</p>}
 
       <div className="max-w-sm">
@@ -134,7 +186,6 @@ export default function AdminClientsPage() {
 
       {selectedEmail && (
         <>
-          {/* Pagination Controls at top */}
           <PaginationControls
             currentPage={currentPage}
             perPage={perPage}
@@ -147,7 +198,6 @@ export default function AdminClientsPage() {
             className="border-b pb-4"
           />
 
-          {/* Content */}
           {loading ? (
             <div className="text-gray-500 text-center py-10">Loading...</div>
           ) : (
@@ -184,14 +234,15 @@ export default function AdminClientsPage() {
                         </div>
                       </td>
                       <td className="px-4 py-2">{client.email ?? "—"}</td>
-                      <td className="px-4 py-2">{client.phone ? formatPhoneNumber(client.phone) : "—"}</td>
+                      <td className="px-4 py-2">
+                        {client.phone ? formatPhoneNumber(client.phone) : "—"}
+                      </td>
                       <td className="px-4 py-2">{client.type ?? "—"}</td>
                       <td className="px-4 py-2">{client.assigned_to_name ?? "—"}</td>
                       <td className="px-4 py-2">
-                        {client.created_at 
+                        {client.created_at
                           ? new Date(client.created_at).toLocaleDateString()
-                          : "—"
-                        }
+                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -207,7 +258,6 @@ export default function AdminClientsPage() {
             </div>
           )}
 
-          {/* Pagination Controls at bottom */}
           {total > 0 && (
             <PaginationControls
               currentPage={currentPage}

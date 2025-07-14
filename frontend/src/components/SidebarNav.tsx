@@ -68,6 +68,7 @@ function SidebarContent({
       section: "Settings",
       items: [
         { label: "Settings", path: "/settings", icon: Settings },
+        { label: "Offline Sync", path: "/status", icon: Database}
       ],
     },
     ...(user?.roles.includes("admin")

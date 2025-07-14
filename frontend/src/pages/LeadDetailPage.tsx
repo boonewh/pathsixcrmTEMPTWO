@@ -1,3 +1,5 @@
+// FULLY REFACTORED LeadDetailPage.tsx WITH OFFLINE SUPPORT
+
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -15,8 +17,11 @@ import { formatPhoneNumber } from "@/lib/phoneUtils";
 import CompanyNotes from "@/components/ui/CompanyNotes";
 import CompanyInteractions from "@/components/ui/CompanyInteractions";
 import CompanyContacts from "@/components/ui/CompanyContacts";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
+import toast from "react-hot-toast";
 
-// TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
 
 export default function LeadDetailPage() {
@@ -34,80 +39,121 @@ export default function LeadDetailPage() {
   const menuRef = useRef<HTMLDivElement>(null);
 
   const [editingTitle, setEditingTitle] = useState(false);
-  const [newTitle, setNewTitle] = useState(lead?.contact_title || "");
+  const [newTitle, setNewTitle] = useState("");
 
   const [projects, setProjects] = useState<any[]>([]);
   const [projectLoadError, setProjectLoadError] = useState("");
-
   const [isAssigning, setIsAssigning] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
-  useEffect(() => {
+  const { updateEntity, listEntities } = useLocalEntityStore();
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { queueOperation } = useSyncQueue();
+
+  const loadLeadData = async (forceOffline = false) => {
     if (!id) return;
+    setLoadError("");
+    const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
 
-    // Fetch lead details
-    apiFetch(`/leads/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load lead");
-        return res.json();
-      })
-      .then((data) => {
+    if (!shouldUseOffline && authReady) {
+      try {
+        const res = await apiFetch(`/leads/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+        if (!res.ok) throw new Error("API Error");
+        const data = await res.json();
         setLead(data);
         setNewTitle(data.contact_title || "");
         setNoteDraft(data.notes || "");
-      })
-      .catch((err) => {
-        console.error("Error loading lead:", err);
-      });
-
-    // Fetch interactions
-    apiFetch(`/interactions/?lead_id=${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load interactions");
-        return res.json();
-      })
-      .then(setInteractions)
-      .catch((err) => {
-        console.error("Error loading interactions:", err);
-      });
-
-    // Fetch assignable users if admin
-    if (userHasRole(user, "admin")) {
-      apiFetch("/users/", {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error("Failed to load users");
-          return res.json();
-        })
-        .then((data) => {
-          setAvailableUsers(data.filter((u: any) => u.is_active));
-        })
-        .catch((err) => {
-          console.error("Error loading users:", err);
-        });
+        setIsOfflineMode(false);
+        return;
+      } catch (err) {
+        console.warn("Lead API failed, using offline fallback:", err);
+      }
     }
-  }, [id, token, user]);
+
+    try {
+      const result = await listEntities("leads", { page: 1, perPage: 1000 });
+      if (result.success && result.data) {
+        const local = result.data.items.find((l: any) => l.id == id);
+        if (local) {
+          setLead(local);
+          setNewTitle(local.contact_title || "");
+          setNoteDraft(local.notes || "");
+          setIsOfflineMode(true);
+          return;
+        }
+      }
+      throw new Error("Lead not found in offline storage");
+    } catch (err: any) {
+      console.error("Failed to load lead offline:", err);
+      setLoadError(err.message || "Unable to load lead");
+      setLead(null);
+    }
+  };
+
+  const loadInteractions = async () => {
+    if (!id) return;
+    const shouldUseOffline = !canMakeAPICall || !navigator.onLine;
+
+    if (!shouldUseOffline && authReady) {
+      try {
+        const res = await apiFetch(`/interactions/?lead_id=${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setInteractions(data.interactions || data);
+          return;
+        }
+      } catch (err) {
+        console.warn("Interactions API failed, using offline:", err);
+      }
+    }
+
+    try {
+      const result = await listEntities("interactions", { page: 1, perPage: 1000 });
+      if (result.success && result.data) {
+        const leadInteractions = result.data.items.filter((i: any) => i.lead_id == id);
+        setInteractions(leadInteractions);
+      }
+    } catch (err) {
+      console.warn("Failed to load interactions offline:", err);
+      setInteractions([]);
+    }
+  };
+
+  const loadProjects = async () => {
+    if (!id || !canMakeAPICall) {
+      setProjects([]);
+      return;
+    }
+    try {
+      const res = await apiFetch(`/projects/by-lead/${id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (res.ok) setProjects(await res.json());
+    } catch (err) {
+      console.warn("Failed to load projects:", err);
+      setProjectLoadError("Failed to load associated projects.");
+    }
+  };
 
   useEffect(() => {
-    if (!id) return;
+    if (!authReady) {
+      console.log("⏳ Waiting for auth to be ready...");
+      return;
+    }
+    loadLeadData();
+    loadInteractions();
+    loadProjects();
+  }, [id, authReady, token]);
 
-    apiFetch(`/projects/by-lead/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load projects");
-        return res.json();
-      })
-      .then(setProjects)
-      .catch((err) => {
-        console.error("Project load error:", err);
-        setProjectLoadError("Failed to load associated projects.");
-      });
-  }, [id, token]);
+  useEffect(() => {
+    if (userHasRole(user, "admin") && canMakeAPICall) {
+      apiFetch("/users/", { headers: { Authorization: `Bearer ${token}` } })
+        .then((res) => res.ok && res.json())
+        .then((data) => setAvailableUsers(data?.filter((u: any) => u.is_active)))
+        .catch((err) => console.error("Error loading users:", err));
+    }
+  }, [user, canMakeAPICall, token]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -120,36 +166,66 @@ export default function LeadDetailPage() {
   }, []);
 
   const saveNote = async () => {
-    const res = await apiFetch(`/leads/${id}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ notes: noteDraft }),
-    });
-    if (res.ok) {
-      setLead((prev) => prev && { ...prev, notes: noteDraft });
-      setIsEditingNote(false);
-    } else {
-      alert("Failed to save notes");
+    if (!id || !lead) return;
+    try {
+      if (canMakeAPICall && navigator.onLine) {
+        const res = await apiFetch(`/leads/${id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ notes: noteDraft }),
+        });
+        if (res.ok) {
+          setLead((prev) => prev && { ...prev, notes: noteDraft });
+          setIsEditingNote(false);
+          toast.success("Notes saved");
+          return;
+        }
+      }
+      const result = await updateEntity("leads", id, { notes: noteDraft });
+      if (result.success) {
+        await queueOperation("UPDATE", "leads", id, { notes: noteDraft });
+        setLead((prev) => prev && { ...prev, notes: noteDraft });
+        setIsEditingNote(false);
+        toast.success("Notes saved and queued");
+      } else throw new Error(result.error);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to save note");
     }
   };
 
   const deleteNote = async () => {
-    const res = await apiFetch(`/leads/${id}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ notes: "" }),
-    });
-    if (res.ok) {
-      setLead((prev) => prev && { ...prev, notes: "" });
-      setNoteDraft("");
-      setIsEditingNote(false);
-    } else {
-      alert("Failed to delete notes");
+    if (!id || !lead) return;
+    try {
+      if (canMakeAPICall && navigator.onLine) {
+        const res = await apiFetch(`/leads/${id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ notes: "" }),
+        });
+        if (res.ok) {
+          setLead((prev) => prev && { ...prev, notes: "" });
+          setNoteDraft("");
+          setIsEditingNote(false);
+          toast.success("Note deleted");
+          return;
+        }
+      }
+
+      const result = await updateEntity("leads", id, { notes: "" });
+      if (result.success) {
+        await queueOperation("UPDATE", "leads", id, { notes: "" });
+        setLead((prev) => prev && { ...prev, notes: "" });
+        setNoteDraft("");
+        setIsEditingNote(false);
+        toast.success("Note deleted and queued");
+      } else throw new Error(result.error);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to delete note");
     }
   };
 
   const handleConvertToClient = async () => {
-    if (!lead) return;
+    if (!lead || !id) return;
 
     const confirmed = confirm(
       `Convert "${lead.name}" to a ${USE_ACCOUNT_LABELS ? "Account" : "Client"}? This will permanently change the lead to an account.`
@@ -157,23 +233,25 @@ export default function LeadDetailPage() {
 
     if (!confirmed) return;
 
-    const res = await apiFetch("/clients/", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        name: lead.name,
-        email: lead.email,
-        phone: lead.phone,
-        address: lead.address,
-        contact_person: lead.contact_person,
-        city: lead.city,
-        state: lead.state,
-        zip: lead.zip,
-        notes: lead.notes,
-      }),
-    });
+    try {
+      const res = await apiFetch("/clients/", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          name: lead.name,
+          email: lead.email,
+          phone: lead.phone,
+          address: lead.address,
+          contact_person: lead.contact_person,
+          city: lead.city,
+          state: lead.state,
+          zip: lead.zip,
+          notes: lead.notes,
+        }),
+      });
 
-    if (res.ok) {
+      if (!res.ok) throw new Error("Failed to convert");
+
       const newClient = await res.json();
 
       await apiFetch("/interactions/transfer", {
@@ -191,17 +269,71 @@ export default function LeadDetailPage() {
       });
 
       window.location.href = `/clients/${newClient.id}`;
-    } else {
-      alert("Failed to convert lead to account.");
+    } catch (err: any) {
+      toast.error(err.message || "Failed to convert lead to client");
+    }
+  };
+
+
+
+  const handleUpdateContactTitle = async (title: string) => {
+    if (!id || !lead) return;
+    try {
+      if (canMakeAPICall && navigator.onLine) {
+        const res = await apiFetch(`/leads/${id}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ contact_title: title }),
+        });
+        if (res.ok) {
+          setLead((prev) => prev && { ...prev, contact_title: title });
+          setEditingTitle(false);
+          toast.success("Contact title updated");
+          return;
+        }
+      }
+      const result = await updateEntity("leads", id, { contact_title: title });
+      if (result.success) {
+        await queueOperation("UPDATE", "leads", id, { contact_title: title });
+        setLead((prev) => prev && { ...prev, contact_title: title });
+        setEditingTitle(false);
+        toast.success("Contact title updated and queued");
+      } else throw new Error(result.error);
+    } catch (err: any) {
+      toast.error(err.message || "Failed to update contact title");
     }
   };
 
   if (!id) return <p className="p-6 text-red-600">Invalid lead ID.</p>;
-
   if (!lead) return <p className="p-6">Loading...</p>;
 
   return (
     <div className="p-6 space-y-6">
+      
+      {isOfflineMode && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <span className="text-sm text-yellow-800">
+              Working offline - changes will sync when connection is restored
+            </span>
+            <button
+              onClick={() => {
+                loadLeadData(false);
+                loadInteractions();
+                loadProjects();
+              }}
+              className="ml-auto text-xs bg-yellow-200 hover:bg-yellow-300 px-2 py-1 rounded"
+            >
+              Retry Online
+            </button>
+          </div>
+        </div>
+      )}
+
       <h1 className="text-2xl font-bold">{lead.name}</h1>
       <div className="flex items-center gap-2 text-sm text-gray-600 mt-1">
         <Wrench size={14} className="text-gray-500" />
@@ -224,22 +356,7 @@ export default function LeadDetailPage() {
                   />
                   <button
                     className="text-blue-600 text-sm"
-                    onClick={async () => {
-                      const res = await apiFetch(`/leads/${id}`, {
-                        method: "PUT",
-                        headers: {
-                          "Content-Type": "application/json",
-                          Authorization: `Bearer ${token}`,
-                        },
-                        body: JSON.stringify({ contact_title: newTitle }),
-                      });
-                      if (res.ok) {
-                        setLead((prev) => prev && { ...prev, contact_title: newTitle });
-                        setEditingTitle(false);
-                      } else {
-                        alert("Failed to update title.");
-                      }
-                    }}
+                    onClick={() => handleUpdateContactTitle(newTitle)}
                   >
                     Save
                   </button>

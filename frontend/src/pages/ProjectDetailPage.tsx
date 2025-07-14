@@ -15,6 +15,9 @@ import { Project, Interaction } from "@/types";
 import { apiFetch } from "@/lib/api";
 import CompanyNotes from "@/components/ui/CompanyNotes";
 import CompanyInteractions from "@/components/ui/CompanyInteractions";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useSyncQueue } from "@/hooks/useSyncQueue";
 
 // TEMP: All Seasons Foam prefers "Accounts" instead of "Clients"
 const USE_ACCOUNT_LABELS = true;
@@ -38,44 +41,96 @@ export default function ProjectDetailPage() {
 
   const [loadError, setLoadError] = useState("");
   const [isAssigning, setIsAssigning] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
-  
-  useEffect(() => {
+  // Offline-related hooks
+  const { updateEntity, listEntities } = useLocalEntityStore();
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { queueOperation } = useSyncQueue();
+
+  const loadProjectData = async (forceOffline = false) => {
     if (!id) return;
 
-    // Fetch project details
-    apiFetch(`/projects/${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
+    setLoadError("");
+
+    const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
+
+    if (!shouldUseOffline && authReady) {
+      try {
+        const res = await apiFetch(`/projects/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
         if (!res.ok) throw new Error("Failed to load project");
-        return res.json();
-      })
-      .then((data) => {
+        const data = await res.json();
         setProject(data);
         setNewTitle(data.primary_contact_title || "");
         setNoteDraft(data.notes || "");
-        
-        // 🆕 Log activity for "Recently Touched" - this happens automatically
-        // when the backend project endpoint is called, similar to clients/leads
-      })
-      .catch((err) => {
-        console.error("Error loading project:", err);
-        setLoadError(err.message || "Failed to load project");
-      });
+        setIsOfflineMode(false);
+        return;
+      } catch (err) {
+        console.warn("🌐 Project API failed, using offline fallback:", err);
+      }
+    }
 
-    // Fetch interactions
-    apiFetch(`/interactions/?project_id=${id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to load interactions");
-        return res.json();
-      })
-      .then((data) => setInteractions(data.interactions || []))
-      .catch((err) => {
-        console.error("Error loading interactions:", err);
-      });
+    try {
+      const result = await listEntities("projects", { page: 1, perPage: 1000 });
+      if (result.success && result.data) {
+        const local = result.data.items.find((p: any) => p.id == id);
+        if (local) {
+          setProject(local);
+          setNewTitle(local.primary_contact_title || "");
+          setNoteDraft(local.notes || "");
+          setIsOfflineMode(true);
+          return;
+        }
+      }
+      throw new Error("Project not found in offline storage");
+    } catch (err: any) {
+      console.error("❌ Offline project load failed:", err);
+      setLoadError(err.message || "Failed to load project");
+      setProject(null);
+    }
+  };
+
+  const loadInteractions = async () => {
+    if (!id) return;
+    const shouldUseOffline = !canMakeAPICall || !navigator.onLine;
+
+    if (!shouldUseOffline && authReady) {
+      try {
+        const res = await apiFetch(`/interactions/?project_id=${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setInteractions(data.interactions || data);
+          return;
+        }
+      } catch (err) {
+        console.warn("🌐 Interactions API failed, using offline:", err);
+      }
+    }
+
+    try {
+      const result = await listEntities("interactions", { page: 1, perPage: 1000 });
+      if (result.success && result.data) {
+        const filtered = result.data.items.filter((i: any) => i.project_id == id);
+        setInteractions(filtered);
+      }
+    } catch (err) {
+      console.warn("❌ Failed to load interactions offline:", err);
+      setInteractions([]);
+    }
+  };
+
+  useEffect(() => {
+    if (!authReady) {
+      console.log("⏳ Waiting for auth...");
+      return;
+    }
+
+    loadProjectData();
+    loadInteractions();
 
     // Fetch assignable users if admin (future feature)
     if (userHasRole(user, "admin")) {
@@ -93,7 +148,7 @@ export default function ProjectDetailPage() {
           console.error("Error loading users:", err);
         });
     }
-  }, [id, token, user]);
+  }, [authReady, id]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -106,31 +161,66 @@ export default function ProjectDetailPage() {
   }, []);
 
   const saveNote = async () => {
-    const res = await apiFetch(`/projects/${id}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ notes: noteDraft }),
-    });
-    if (res.ok) {
-      setProject((prev) => prev && { ...prev, notes: noteDraft });
-      setIsEditingNote(false);
-    } else {
-      alert("Failed to save notes");
+    if (!id || !project) return;
+
+    try {
+      if (canMakeAPICall && navigator.onLine) {
+        const res = await apiFetch(`/projects/${id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ notes: noteDraft }),
+        });
+        if (res.ok) {
+          setProject((prev) => prev && { ...prev, notes: noteDraft });
+          setIsEditingNote(false);
+          return;
+        }
+      }
+
+      const result = await updateEntity("projects", id, { notes: noteDraft });
+      if (result.success) {
+        await queueOperation("UPDATE", "projects", id, { notes: noteDraft });
+        setProject((prev) => prev && { ...prev, notes: noteDraft });
+        setIsEditingNote(false);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      console.error("❌ Failed to save note:", err);
+      alert(err.message || "Failed to save note");
     }
   };
 
   const deleteNote = async () => {
-    const res = await apiFetch(`/projects/${id}`, {
-      method: "PUT",
-      headers: { Authorization: `Bearer ${token}` },
-      body: JSON.stringify({ notes: "" }),
-    });
-    if (res.ok) {
-      setProject((prev) => prev && { ...prev, notes: "" });
-      setNoteDraft("");
-      setIsEditingNote(false);
-    } else {
-      alert("Failed to delete notes");
+    if (!id || !project) return;
+
+    try {
+      if (canMakeAPICall && navigator.onLine) {
+        const res = await apiFetch(`/projects/${id}`, {
+          method: "PUT",
+          headers: { Authorization: `Bearer ${token}` },
+          body: JSON.stringify({ notes: "" }),
+        });
+        if (res.ok) {
+          setProject((prev) => prev && { ...prev, notes: "" });
+          setNoteDraft("");
+          setIsEditingNote(false);
+          return;
+        }
+      }
+
+      const result = await updateEntity("projects", id, { notes: "" });
+      if (result.success) {
+        await queueOperation("UPDATE", "projects", id, { notes: "" });
+        setProject((prev) => prev && { ...prev, notes: "" });
+        setNoteDraft("");
+        setIsEditingNote(false);
+      } else {
+        throw new Error(result.error);
+      }
+    } catch (err: any) {
+      console.error("❌ Failed to delete note:", err);
+      alert(err.message || "Failed to delete note");
     }
   };
 
@@ -202,6 +292,27 @@ export default function ProjectDetailPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {/* Offline Mode Banner */}
+      {isOfflineMode && (
+        <div className="mb-4 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-yellow-600">⚠️</span>
+            <span className="text-sm text-yellow-800">
+              Working offline - changes will sync when connection is restored
+            </span>
+            <button
+              onClick={() => {
+                loadProjectData(false);
+                loadInteractions();
+              }}
+              className="ml-auto text-xs bg-yellow-200 hover:bg-yellow-300 px-2 py-1 rounded"
+            >
+              Retry Online
+            </button>
+          </div>
+        </div>
+      )}
+
       <h1 className="text-2xl font-bold">{project.project_name}</h1>
       
       {/* Project Type */}

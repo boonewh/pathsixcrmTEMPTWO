@@ -4,7 +4,8 @@ import { apiFetch } from "@/lib/api";
 import { Link, useSearchParams } from "react-router-dom";
 import PaginationControls from "@/components/ui/PaginationControls";
 import { usePagination } from "@/hooks/usePreferences";
-
+import { useAuthReady } from "@/hooks/useAuthReady";
+import { useLocalEntityStore } from "@/hooks/useLocalEntityStore";
 
 interface AdminProject {
   id: number;
@@ -37,10 +38,10 @@ export default function AdminProjectsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isOfflineMode, setIsOfflineMode] = useState(false);
 
   const selectedEmail = searchParams.get("user") || "";
 
-  // Use pagination hook with admin-specific key
   const {
     perPage,
     sortOrder,
@@ -48,28 +49,44 @@ export default function AdminProjectsPage() {
     setCurrentPage,
     updatePerPage,
     updateSortOrder,
-  } = usePagination('admin_projects');
+  } = usePagination("admin_projects");
 
-  // Load users on component mount
+  const { authReady, canMakeAPICall } = useAuthReady();
+  const { listEntities } = useLocalEntityStore();
+
   useEffect(() => {
     const fetchUsers = async () => {
       try {
-        const userRes = await apiFetch("/users/", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const usersData = await userRes.json();
-        setUsers(usersData.filter((u: User) => u.is_active));
+        const shouldUseOffline = !canMakeAPICall || !navigator.onLine;
+
+        if (!shouldUseOffline) {
+          const userRes = await apiFetch("/users/", {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const usersData = await userRes.json();
+          setUsers(usersData.filter((u: User) => u.is_active));
+        } else {
+          const result = await listEntities("users", { page: 1, perPage: 100 });
+          if (result.success && result.data) {
+            setUsers(result.data.items.filter((u: User) => u.is_active));
+            setIsOfflineMode(true);
+          } else {
+            throw new Error(result.error || "Offline load failed");
+          }
+        }
       } catch {
         setError("Failed to load users");
+        setUsers([]);
       }
     };
 
     fetchUsers();
-  }, [token]);
+  }, [token, canMakeAPICall, listEntities]);
 
-  // Load projects when user selection or pagination changes
+
+
   useEffect(() => {
-    const fetchProjects = async () => {
+    const fetchProjects = async (forceOffline = false) => {
       if (!selectedEmail) {
         setProjects([]);
         setTotal(0);
@@ -78,31 +95,63 @@ export default function AdminProjectsPage() {
       }
 
       setLoading(true);
-      try {
-        const projectRes = await apiFetch(
-          `/projects/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(selectedEmail)}`,
-          {
-            headers: { Authorization: `Bearer ${token}` },
-          }
-        );
+      setError("");
 
-        const projectsData = await projectRes.json();
-        setProjects(projectsData.projects);
-        setTotal(projectsData.total);
-        setError("");
-      } catch {
-        setError("Failed to load projects");
+      const shouldUseOffline = forceOffline || !canMakeAPICall || !navigator.onLine;
+
+      if (!shouldUseOffline && authReady) {
+        try {
+          const projectRes = await apiFetch(
+            `/projects/all?page=${currentPage}&per_page=${perPage}&sort=${sortOrder}&user_email=${encodeURIComponent(selectedEmail)}`,
+            {
+              headers: { Authorization: `Bearer ${token}` },
+            }
+          );
+
+          const projectsData = await projectRes.json();
+          setProjects(projectsData.projects);
+          setTotal(projectsData.total);
+          setError("");
+          setIsOfflineMode(false);
+          return;
+        } catch (err) {
+          console.warn("API fetch failed, falling back to offline:", err);
+        }
+      }
+
+      try {
+        const result = await listEntities("projects", {
+          page: currentPage,
+          perPage,
+        });
+
+        if (result.success && result.data) {
+          const filtered = result.data.items.filter(
+            (p: any) =>
+              p.created_by_name === selectedEmail || p.assigned_to_email === selectedEmail
+          );
+          setProjects(filtered);
+          setTotal(filtered.length);
+          setIsOfflineMode(true);
+        } else {
+          throw new Error(result.error || "Offline load failed");
+        }
+      } catch (err: any) {
+        console.error("Load failed:", err);
+        setError("Unable to load projects.");
         setProjects([]);
         setTotal(0);
+        setIsOfflineMode(true);
       } finally {
         setLoading(false);
       }
     };
 
-    fetchProjects();
-  }, [token, selectedEmail, currentPage, perPage, sortOrder]);
+    if (authReady) {
+      fetchProjects();
+    }
+  }, [token, selectedEmail, currentPage, perPage, sortOrder, authReady, canMakeAPICall]);
 
-  // Reset to page 1 when user selection changes
   useEffect(() => {
     setCurrentPage(1);
   }, [selectedEmail, setCurrentPage]);
@@ -115,6 +164,13 @@ export default function AdminProjectsPage() {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold text-blue-800">Admin: Projects Overview</h1>
+
+      {isOfflineMode && (
+        <p className="text-sm text-yellow-600">
+          ⚠️ Offline mode – showing cached data only.
+        </p>
+      )}
+
       {error && <p className="text-red-500">{error}</p>}
 
       <div className="max-w-sm">
@@ -138,7 +194,6 @@ export default function AdminProjectsPage() {
 
       {selectedEmail && (
         <>
-          {/* Pagination Controls at top */}
           <PaginationControls
             currentPage={currentPage}
             perPage={perPage}
@@ -151,7 +206,6 @@ export default function AdminProjectsPage() {
             className="border-b pb-4"
           />
 
-          {/* Content */}
           {loading ? (
             <div className="text-gray-500 text-center py-10">Loading...</div>
           ) : (
@@ -222,27 +276,23 @@ export default function AdminProjectsPage() {
                       <td className="px-4 py-2">
                         {project.project_worth !== undefined && project.project_worth !== null
                           ? `$${project.project_worth.toLocaleString()}`
-                          : "—"
-                        }
+                          : "—"}
                       </td>
                       <td className="px-4 py-2">
                         {project.project_start 
                           ? new Date(project.project_start).toLocaleDateString()
-                          : "—"
-                        }
+                          : "—"}
                       </td>
                       <td className="px-4 py-2">
                         {project.project_end 
                           ? new Date(project.project_end).toLocaleDateString()
-                          : "—"
-                        }
+                          : "—"}
                       </td>
                       <td className="px-4 py-2">{project.assigned_to_email ?? "—"}</td>
                       <td className="px-4 py-2">
                         {project.created_at 
                           ? new Date(project.created_at).toLocaleDateString()
-                          : "—"
-                        }
+                          : "—"}
                       </td>
                     </tr>
                   ))}
@@ -258,7 +308,6 @@ export default function AdminProjectsPage() {
             </div>
           )}
 
-          {/* Pagination Controls at bottom */}
           {total > 0 && (
             <PaginationControls
               currentPage={currentPage}

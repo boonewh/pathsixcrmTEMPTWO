@@ -1,190 +1,197 @@
-from quart import Blueprint, request, jsonify, g
-from datetime import datetime
+from quart import Blueprint, request, jsonify, g, Response
 import pandas as pd
 import io
+import json
+from datetime import datetime
 from app.models import Lead, User
 from app.database import SessionLocal
 from app.utils.auth_utils import requires_auth
-from app.utils.email_utils import send_assignment_notification
-from app.utils.import_utils import map_lead_data
+from app.utils.phone_utils import clean_phone_number
+from app.constants import TYPE_OPTIONS, LEAD_STATUS_OPTIONS, PHONE_LABELS
 
-# Change to a separate blueprint to avoid conflicts
 imports_bp = Blueprint("imports", __name__, url_prefix="/api/import")
 
+VALID_LEAD_FIELDS = {
+    'name': {'required': True, 'type': 'string', 'max_length': 100},
+    'contact_person': {'required': False, 'type': 'string', 'max_length': 100},
+    'contact_title': {'required': False, 'type': 'string', 'max_length': 100},
+    'email': {'required': False, 'type': 'email', 'max_length': 120},
+    'phone': {'required': False, 'type': 'phone', 'max_length': 20},
+    'phone_label': {'required': False, 'type': 'choice', 'choices': PHONE_LABELS},
+    'secondary_phone': {'required': False, 'type': 'phone', 'max_length': 20},
+    'secondary_phone_label': {'required': False, 'type': 'choice', 'choices': PHONE_LABELS},
+    'address': {'required': False, 'type': 'string', 'max_length': 255},
+    'city': {'required': False, 'type': 'string', 'max_length': 100},
+    'state': {'required': False, 'type': 'string', 'max_length': 100},
+    'zip': {'required': False, 'type': 'string', 'max_length': 20},
+    'notes': {'required': False, 'type': 'text'},
+    'type': {'required': False, 'type': 'choice', 'choices': TYPE_OPTIONS},
+    'lead_status': {'required': False, 'type': 'choice', 'choices': LEAD_STATUS_OPTIONS}
+}
 
-@imports_bp.route("/leads", methods=["POST"])
-@requires_auth(roles=["admin"])
-async def import_leads():
-    """
-    Import leads from CSV/Excel file and assign to a specific user.
-    Expected CSV columns: OWNER_NAME, PLANT_NAME, ADDRESS, CITY, STATE, PHONE, 
-                         SIC_DESC, CONTACT TITLE, CONTACT FIRST NAME, CONTACT LAST NAME, CONTACT EMAIL
-    """
-    user = g.user 
-    session = SessionLocal()
-    
-    try:
-        # Get form data
-        form = await request.form
-        assigned_user_email = form.get('assigned_user_email')
-        
-        if not assigned_user_email:
-            return jsonify({"error": "assigned_user_email is required"}), 400
-        
-        # Validate that the assigned user exists and is active
-        assigned_user = session.query(User).filter(
-            User.email == assigned_user_email,
-            User.tenant_id == user.tenant_id,
-            User.is_active == True
-        ).first()
-        
-        if not assigned_user:
-            return jsonify({"error": f"User with email {assigned_user_email} not found or inactive"}), 400
-        
-        # Get the uploaded file
-        files = await request.files
-        if 'file' not in files:
-            return jsonify({"error": "No file uploaded"}), 400
-        
-        file = files['file']
-        if file.filename == '':
-            return jsonify({"error": "No file selected"}), 400
-        
-        # Read file content
-        file_content = file.read()
-        
-        # Determine file type and parse accordingly
-        if file.filename.endswith('.xlsx'):
-            # Parse Excel file
-            df = pd.read_excel(io.BytesIO(file_content))
-        elif file.filename.endswith('.csv'):
-            # Parse CSV file
-            df = pd.read_csv(io.StringIO(file_content.decode('utf-8')))
-        else:
-            return jsonify({"error": "Unsupported file format. Please upload CSV or Excel file."}), 400
-        
-        # Clean column names (remove extra spaces)
-        df.columns = df.columns.str.strip()
-        
-        # Validate required columns
-        required_columns = ['PLANT_NAME']
-        missing_columns = [col for col in required_columns if col not in df.columns]
-        if missing_columns:
-            return jsonify({"error": f"Missing required columns: {missing_columns}"}), 400
-        
-        successful_imports = 0
-        failed_imports = []
-        
-        for index, row in df.iterrows():
+def read_file(file_storage):
+    filename = file_storage.filename.lower()
+    if filename.endswith(".csv"):
+        for encoding in ["utf-8", "latin1", "cp1252"]:
             try:
-                # Use utility function to map and validate data
-                lead_data = map_lead_data(row)
-                
-                # Create the lead with validated data
+                return pd.read_csv(file_storage.stream, encoding=encoding)
+            except UnicodeDecodeError:
+                continue
+        raise ValueError("Could not decode CSV file")
+    elif filename.endswith(".xlsx"):
+        return pd.read_excel(file_storage.stream)
+    else:
+        raise ValueError("Unsupported file format")
+
+@imports_bp.route("/leads/preview", methods=["POST"])
+@requires_auth()
+async def preview_leads():
+    files = await request.files
+    if 'file' not in files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = files['file']
+    try:
+        df = read_file(file)
+        df.columns = df.columns.astype(str).str.strip()
+
+        return jsonify({
+            "headers": df.columns.tolist(),
+            "rows": df.head(10).fillna('').values.tolist(),
+            "totalRows": len(df)
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 400
+
+@imports_bp.route("/leads/submit", methods=["POST"])
+@requires_auth()
+async def submit_leads():
+    user = request.user
+    form = await request.form
+    files = await request.files
+
+    if 'file' not in files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    file = files['file']
+    assigned_email = form.get("assigned_user_email")
+    column_mappings = json.loads(form.get("column_mappings", "[]"))
+
+    session = SessionLocal()
+    try:
+        assigned_user = session.query(User).filter_by(
+            email=assigned_email,
+            tenant_id=user.tenant_id,
+            is_active=True
+        ).first()
+        if not assigned_user:
+            return jsonify({"error": "Assigned user not found or inactive"}), 400
+
+        df = read_file(file)
+        df.columns = df.columns.astype(str).str.strip()
+
+        mapped_fields = [m['leadField'] for m in column_mappings if m['leadField']]
+        if 'name' not in mapped_fields:
+            return jsonify({"error": "'name' field (Company Name) is required"}), 400
+
+        successful = 0
+        failed = 0
+        failures = []
+        warnings = []
+
+        for idx, row in df.iterrows():
+            try:
+                lead_data = {}
+                for mapping in column_mappings:
+                    csv_col = mapping['csvColumn']
+                    lead_field = mapping['leadField']
+                    if not lead_field:  # Skip unmapped fields
+                        continue
+
+                    val = row.get(csv_col, '')
+                    if pd.isna(val) or str(val).strip() == '':
+                        continue
+
+                    cleaned = str(val).strip()
+                    # ... cleaning logic here ...
+                    lead_data[lead_field] = cleaned
+
+                    if lead_field in ['phone', 'secondary_phone']:
+                        cleaned = clean_phone_number(cleaned)
+                        if not cleaned:
+                            warnings.append(f"Invalid phone on row {idx + 2}")
+                            continue
+                    elif lead_field == 'email':
+                        cleaned = cleaned.lower()
+                    elif lead_field == 'type' and cleaned.lower() not in [t.lower() for t in TYPE_OPTIONS]:
+                        warnings.append(f"Unknown business type '{cleaned}' on row {idx + 2}")
+                        cleaned = "None"
+                    elif lead_field == 'lead_status' and cleaned.lower() not in [s.lower() for s in LEAD_STATUS_OPTIONS]:
+                        warnings.append(f"Unknown lead status '{cleaned}' on row {idx + 2}")
+                        cleaned = "open"
+                    elif lead_field.endswith("_label") and cleaned.lower() not in [p.lower() for p in PHONE_LABELS]:
+                        warnings.append(f"Unknown phone label '{cleaned}' on row {idx + 2}")
+                        cleaned = "work"
+
+                    lead_data[lead_field] = cleaned
+
+                if not lead_data.get("name"):
+                    raise ValueError("Missing required 'name' field")
+
+                lead_data.setdefault("type", "None")
+                lead_data.setdefault("lead_status", "open")
+                if "phone" in lead_data and "phone_label" not in lead_data:
+                    lead_data["phone_label"] = "work"
+                if "secondary_phone" in lead_data and "secondary_phone_label" not in lead_data:
+                    lead_data["secondary_phone_label"] = "mobile"
+
                 lead = Lead(
                     tenant_id=user.tenant_id,
-                    created_by=user.id,  # Admin who imported
-                    assigned_to=assigned_user.id,  # User it's assigned to
-                    name=lead_data['name'] or f"Plant {index + 1}",
-                    contact_person=lead_data['contact_person'],
-                    contact_title=lead_data['contact_title'],
-                    email=lead_data['email'],
-                    phone=lead_data['phone'],
-                    phone_label=lead_data['phone_label'],
-                    address=lead_data['address'],
-                    city=lead_data['city'],
-                    state=lead_data['state'],
-                    zip=lead_data['zip'],
-                    notes=lead_data['notes'],
-                    type=lead_data['type'],
-                    lead_status=lead_data['lead_status'],
-                    created_at=datetime.utcnow()
+                    created_by=user.id,
+                    assigned_to=assigned_user.id,
+                    created_at=datetime.utcnow(),
+                    **lead_data
                 )
-                
                 session.add(lead)
-                successful_imports += 1
-                
+                session.flush()
+                successful += 1
             except Exception as e:
-                failed_imports.append({
-                    "row": index + 1,
-                    "plant_name": str(row.get('PLANT_NAME', 'Unknown')),
+                failed += 1
+                failures.append({
+                    "row": idx + 2,
+                    "data": row.dropna().to_dict(),
                     "error": str(e)
                 })
-                continue
-        
-        # Commit all successful imports
-        if successful_imports > 0:
+                session.rollback()
+
+        if successful:
             session.commit()
-            
-            # Send notification email to assigned user
-            try:
-                await send_assignment_notification(
-                    to_email=assigned_user.email,
-                    entity_type="leads",
-                    entity_name=f"{successful_imports} imported leads",
-                    assigned_by=user.email
-                )
-            except Exception as email_error:
-                # Don't fail the import if email fails
-                print(f"Failed to send email notification: {email_error}")
-        
-        response_data = {
-            "message": f"Import completed. {successful_imports} leads imported successfully.",
-            "successful_imports": successful_imports,
-            "failed_imports": len(failed_imports),
-            "failures": failed_imports[:10] if failed_imports else []  # Limit to first 10 failures
-        }
-        
-        if failed_imports:
-            response_data["message"] += f" {len(failed_imports)} imports failed."
-        
-        return jsonify(response_data), 200
-        
+
+        return jsonify({
+            "message": f"Import complete: {successful} succeeded, {failed} failed.",
+            "successful_imports": successful,
+            "failed_imports": failed,
+            "warnings": list(set(warnings)),
+            "failures": failures
+        })
     except Exception as e:
         session.rollback()
-        return jsonify({"error": f"Import failed: {str(e)}"}), 500
+        return jsonify({"error": f"Unexpected error: {str(e)}"}), 500
     finally:
         session.close()
 
 
 @imports_bp.route("/leads/template", methods=["GET"])
-@requires_auth(roles=["admin"])
-async def download_import_template():
-    """
-    Provide a CSV template for lead imports
-    """
-    template_data = {
-        "OWNER_NAME": ["Example Company LLC"],
-        "PLANT_NAME": ["Example Plant Name"],
-        "ADDRESS": ["123 Main Street"],
-        "CITY": ["Anytown"],
-        "STATE": ["Kansas"],
-        "PHONE": ["316-555-1234"],
-        "SIC_DESC": ["Food Processing"],
-        "CONTACT TITLE": ["Plant Manager"],
-        "CONTACT FIRST NAME": ["John"],
-        "CONTACT LAST NAME": ["Doe"],
-        "CONTACT EMAIL": ["john.doe@example.com"]
-    }
-    
-    df = pd.DataFrame(template_data)
-    
-    # Convert to CSV
-    output = io.StringIO()
-    df.to_csv(output, index=False)
-    csv_content = output.getvalue()
-    
-    from quart import Response
+@requires_auth()
+async def get_lead_template():
+    headers = [
+        "Company Name", "Contact Person", "Contact Title", "Email", "Phone",
+        "Phone Label", "Secondary Phone", "Secondary Phone Label", "Address",
+        "City", "State", "Zip", "Notes", "Type", "Lead Status"
+    ]
+    csv_data = ",".join(headers) + "\n"
     return Response(
-        csv_content,
-        mimetype='text/csv',
-        headers={"Content-Disposition": "attachment; filename=lead_import_template.csv"}
+        csv_data,
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment;filename=lead_import_template.csv"}
     )
-
-@imports_bp.route("/test", methods=["GET"])
-@requires_auth(roles=["admin"])
-async def test_import_route():
-    """
-    Simple test route to verify the import blueprint is working
-    """
-    return jsonify({"message": "Import route is working!", "user": g.user.email}), 200

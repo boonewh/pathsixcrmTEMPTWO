@@ -190,6 +190,7 @@ class Project(Base):
     # ✅ Relationships to access names in API
     client = relationship("Client", backref="projects")
     lead = relationship("Lead", backref="projects")
+    created_by_user = relationship("User", foreign_keys=[created_by])
 
     def __repr__(self):
         return f"<Project {self.project_name}>"

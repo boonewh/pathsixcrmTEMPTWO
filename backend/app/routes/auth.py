@@ -14,39 +14,66 @@ from app.utils.email_utils import send_email
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/api")
 
+
+
 @auth_bp.route("/login", methods=["POST"])
 async def login():
-    data = await request.get_json()
-
-    email = data.get("email", "").lower().strip()
-    password = data.get("password")
-
-    if not email or not password:
-        return jsonify({"error": "Missing credentials"}), 400
-
-    session = SessionLocal()
+    print("📥 Hit /api/login")
     try:
-        user = session.query(User).filter_by(email=email).first()
-        if not user or not verify_password(password, user.password_hash):
-            return jsonify({"error": "Invalid credentials"}), 401
+        data = await request.get_json()
+        print("📨 Parsed JSON:", data)
 
-        token = create_token(user)
+        email = data.get("email", "").lower().strip()
+        password = data.get("password")
 
-        response = jsonify({
-            "user": {
-                "id": user.id,
-                "email": user.email,
-                "roles": [role.name for role in user.roles]
-            },
-            "token": token
-        })
-        response.headers["Cache-Control"] = "no-store"
-        return response
-    except SQLAlchemyError as e:
-        session.rollback()
-        return jsonify({"error": "Server error"}), 500
-    finally:
-        session.close()
+        if not email or not password:
+            print("❌ Missing credentials")
+            return jsonify({"error": "Missing credentials"}), 400
+
+        session = SessionLocal()
+        try:
+            print("🔎 Querying user:", email)
+            user = session.query(User).filter_by(email=email).first()
+            if not user:
+                print("❌ User not found")
+                return jsonify({"error": "Invalid credentials"}), 401
+
+            if not verify_password(password, user.password_hash):
+                print("❌ Password mismatch")
+                return jsonify({"error": "Invalid credentials"}), 401
+
+            print("✅ Login success, user roles:", user.roles)
+
+            token = create_token(user)
+
+            response = jsonify({
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "roles": [role.name for role in user.roles] if user.roles else []
+                },
+                "token": token
+            })
+            response.headers["Cache-Control"] = "no-store"
+            return response
+
+        except SQLAlchemyError as e:
+            session.rollback()
+            print("💥 SQLAlchemy error:", e)
+            import traceback
+            traceback.print_exc()
+            return jsonify({"error": "Server error"}), 500
+
+        finally:
+            session.close()
+
+    except Exception as e:
+        print("🔥 Outer exception in /login:", e)
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
+
+    
 
 @auth_bp.route("/forgot-password", methods=["POST"])
 async def forgot_password():

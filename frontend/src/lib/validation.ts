@@ -58,6 +58,29 @@ const OfflineMetadataSchema = z.object({
   _version: z.number().optional(),
 });
 
+export const UserSchema = z.object({
+  id: z.number(),
+  email: z.string().email(),
+  roles: z.array(z.string()),
+  created_at: z.string(),
+}).merge(OfflineMetadataSchema);
+
+export const ContactSchema = z.object({
+  id: z.union([z.number(), z.string()]).optional(),
+  first_name: z.string().min(1, "First name is required").max(100),
+  last_name: z.string().min(1, "Last name is required").max(100),
+  title: z.string().max(100).optional(),
+  email: emailSchema,
+  phone: phoneSchema,
+  phone_label: PhoneLabelSchema.optional(),
+  secondary_phone: phoneSchema,
+  secondary_phone_label: PhoneLabelSchema.optional(),
+  notes: z.string().optional(),
+  client_id: z.number().optional(),
+  lead_id: z.number().optional(),
+  created_at: dateSchema,
+}).merge(OfflineMetadataSchema);
+
 // Client validation schema
 export const ClientSchema = z.object({
   id: z.union([z.number(), z.string()]).optional(),
@@ -218,10 +241,12 @@ export type ValidatedInteraction = z.infer<typeof InteractionSchema>;
 
 // Entity configuration
 export const ENTITY_SCHEMAS = {
+  users: UserSchema,
   clients: ClientSchema,
   leads: LeadSchema,
   projects: ProjectSchema,
   interactions: InteractionSchema,
+  contacts: ContactSchema,
 } as const;
 
 export const ENTITY_CONFIG = {
@@ -246,12 +271,26 @@ export const ENTITY_CONFIG = {
     primaryField: 'project_name',
     icon: '🚧'
   },
+  users: {
+    schema: UserSchema,
+    endpoint: '/users',
+    displayName: 'User',
+    primaryField: 'email',
+    icon: '👤'
+  },
   interactions: {
     schema: InteractionSchema,
     endpoint: '/interactions',
     displayName: 'Interaction',
     primaryField: 'summary',
     icon: '📞'
+  },
+  contacts: {
+    schema: ContactSchema,
+    endpoint: '/contacts',
+    displayName: 'Contact',
+    primaryField: 'first_name',
+    icon: '👤'
   }
 } as const;
 

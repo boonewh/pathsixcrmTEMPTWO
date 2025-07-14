@@ -142,9 +142,9 @@ export function useSyncQueue() {
         const existing = await table.get(op.entityId);
         if (
           existing &&
-          typeof existing.updated_at === 'number' &&
+          typeof existing._lastModified === 'number' &&
           typeof op.timestamp === 'number' &&
-          existing.updated_at >= op.timestamp
+          existing._lastModified >= op.timestamp
         ) {
           console.log(`⏩ Skipping stale op ${op.id} for ${type}#${op.entityId}`);
           await offlineDB.syncQueue.update(op.id, { status: 'skipped' });
@@ -207,7 +207,7 @@ export function useSyncQueue() {
   // Queue an operation for sync with enhanced retry config
   const queueOperation = useCallback(async (
     operation: 'CREATE' | 'UPDATE' | 'DELETE',
-    entityType: 'clients' | 'leads' | 'projects' | 'interactions',
+    entityType: EntityType,
     entityId: number | string,
     data: any,
     localId?: string
@@ -324,7 +324,7 @@ export function useSyncQueue() {
     updateSyncStatus('syncing');
 
     try {
-      const entityTypes: EntityType[] = ['clients', 'leads', 'projects', 'interactions'];
+      const entityTypes: EntityType[] = ['users', 'clients', 'leads', 'projects', 'interactions', 'contacts'];
 
       for (const type of entityTypes) {
         // 🔥 Check if still online before each entity
@@ -555,10 +555,12 @@ export function useSyncQueue() {
   // Helper functions
   const getEndpointForEntity = (entityType: string): string => {
     switch (entityType) {
+      case 'users': return '/users';
       case 'clients': return '/clients';
       case 'leads': return '/leads';
       case 'projects': return '/projects';
       case 'interactions': return '/interactions';
+      case 'contacts': return '/contacts'; // ✅ ADD THIS LINE
       default: throw new Error(`Unknown entity type: ${entityType}`);
     }
   };
